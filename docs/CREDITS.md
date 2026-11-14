@@ -4,6 +4,7 @@
 
 - 企画・ゲームデザインの芯：madowaku
 - ディレクション、設計、実装、検証：Claude Fable 5.2（Anthropic の生成AI、Claude Code 上で作業）
+- 2〜4話の壁紙・床・看板（`tools/gen_textures2.py`）と効果音（`tools/gen_audio.py` の後半）：Claude Opus 5.5（同上）
 - 人物モデルとアニメーション（`scripts/human.gd`）、HUD と画面シェーダ（`scripts/hud.gd`, `shaders/post.gdshader`）：Claude Opus 5.5（同上、Fable 5.2 の仕様書に基づく）
 
 ## 生成AIの利用開示
@@ -12,7 +13,7 @@
 |---|---|
 | プログラム（GDScript、シェーダ、Python ツール） | すべて生成AI（Claude）が記述 |
 | レベルデザイン・パズル | 生成AIが設計し、全探索プログラムで検証 |
-| テクスチャ・ロゴ・アイコン（`assets/tex/*.png`） | 画像生成AIは不使用。AIが書いた Python（`tools/gen_textures.py`, `tools/gen_human_tex.py`）による手続き生成 |
+| テクスチャ・ロゴ・アイコン（`assets/tex/*.png`） | 画像生成AIは不使用。AIが書いた Python（`tools/gen_textures.py`, `tools/gen_textures2.py`, `tools/gen_human_tex.py`）による手続き生成 |
 | 効果音（`assets/audio/*.wav`） | 音声生成AIは不使用。AIが書いた Python（`tools/gen_audio.py`）による波形合成 |
 | 3Dモデル | モデル生成AIは不使用。建物は箱と面、人物は多角形の輪を積んだメッシュをコードで組み立てている |
 | 音楽 | なし（BGMなし） |

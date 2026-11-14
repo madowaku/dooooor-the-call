@@ -56,6 +56,9 @@ const LIGHTS := [
 var L: LevelLogic
 var room_bit: Dictionary = {}
 var flicker_lights: Array = []
+var meta: LevelMeta        # chapters 2-4: rooms, lights and dressing come from the level file
+var styles: Dictionary = ROOMS
+var duct_pairs: Array = []
 var bare := false          # test boards: walls, doors, one bulb per cell, the telephone. nothing else.
 var phone_pos := Vector3.ZERO
 var phone_handset: Node3D
@@ -151,7 +154,11 @@ func mat(name: String) -> Material:
 		m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 		m.cull_mode = BaseMaterial3D.CULL_DISABLED
 	else:
-		m.albedo_texture = load("res://assets/tex/%s.png" % name)
+		if ResourceLoader.exists("res://assets/tex/%s.png" % name):
+			m.albedo_texture = load("res://assets/tex/%s.png" % name)
+		else:
+			push_warning("missing texture " + name)
+			m.albedo_color = Color(0.5, 0.48, 0.44)
 		if name == "brass" or name == "iron":
 			m.metallic_specular = 0.5
 			m.roughness = 0.4
@@ -184,8 +191,10 @@ func room_of(p: Vector3) -> String:
 
 func build(logic: LevelLogic) -> void:
 	L = logic
+	if meta != null and not meta.rooms.is_empty():
+		styles = meta.rooms
 	var bit := 0
-	for r: String in ROOMS:
+	for r: String in styles:
 		room_bit[r] = 1 << bit
 		bit += 1
 	_build_cells()
@@ -193,6 +202,8 @@ func build(logic: LevelLogic) -> void:
 	_build_posts()
 	if bare:
 		_build_bare()
+	elif meta != null and not meta.rooms.is_empty():
+		_build_auto()
 	else:
 		_build_lights()
 		_build_props()
@@ -203,7 +214,7 @@ func _build_cells() -> void:
 	var up := Vector3.UP
 	for c: Vector2i in L.cells:
 		var room: String = L.cells[c]
-		var style: Dictionary = ROOMS[room]
+		var style: Dictionary = styles[room]
 		var mb := MB.new()
 		var o := vertex_pos(c)
 		mb.quad(style.floor, o, Vector3(CELL, 0, 0), Vector3(0, 0, CELL), up, Vector2(c.x, c.y), Vector2(1, 0), Vector2(0, 1))
@@ -390,6 +401,94 @@ func _build_lights() -> void:
 	mi.mesh = mb.build(self)
 	mi.layers = ALL_LAYERS
 	add_child(mi)
+
+
+func _fixture(mb: MB, pos: Vector3, room: String, kind: String, color: Color, energy: float, rng: float) -> void:
+	var l := OmniLight3D.new()
+	l.light_color = color
+	l.light_energy = energy
+	l.omni_range = rng
+	l.omni_attenuation = 1.1
+	l.shadow_enabled = false
+	l.light_specular = 0.3
+	l.light_cull_mask = room_bit[room] | (1 << 19)
+	match kind:
+		"tube":
+			l.position = pos + Vector3(0, WALL_H - 0.45, 0)
+			mb.quad("#1c1c1a", pos + Vector3(-0.11, WALL_H - 0.07, -0.65), Vector3(0.22, 0, 0), Vector3(0, 0, 1.3), Vector3.DOWN)
+			mb.box("#e6fff0!" if color != COLD else "#e4f0ff!", pos + Vector3(0, WALL_H - 0.1, 0), Vector3(0.07, 0.05, 1.2))
+		"lamp":
+			l.position = pos + Vector3(0, 1.75, 0)
+			mb.box("#141210", pos + Vector3(0, WALL_H - 0.4, 0), Vector3(0.02, 0.8, 0.02))
+			mb.box("#c89a58!", pos + Vector3(0, 1.93, 0), Vector3(0.5, 0.2, 0.5))
+			mb.box("#fff2d0!", pos + Vector3(0, 1.82, 0), Vector3(0.12, 0.1, 0.12))
+		_:
+			l.position = pos + Vector3(0, WALL_H - 0.6, 0)
+			mb.box("#141210", pos + Vector3(0, WALL_H - 0.14, 0), Vector3(0.02, 0.28, 0.02))
+			mb.box("#fff0c8!", pos + Vector3(0, WALL_H - 0.32, 0), Vector3(0.09, 0.11, 0.09))
+	add_child(l)
+
+
+## chapters 2-4: every room is described by a line in the level file
+func _build_auto() -> void:
+	var TONES := {"warm": [BULB, 1.5], "dim": [BULB, 0.85], "fluo": [FLUO, 1.3], "cold": [COLD, 1.45], "lamp": [LAMP, 2.1], "red": [Color(1.0, 0.5, 0.36), 1.1], "grey": [Color(0.8, 0.84, 0.9), 0.9]}
+	var mb := MB.new()
+	var room_mb := {}
+	var count := {}
+	for c: Vector2i in L.cells:
+		count[L.cells[c]] = int(count.get(L.cells[c], 0)) + 1
+	for r: String in styles:
+		room_mb[r] = MB.new()
+	for c: Vector2i in L.cells:
+		var room: String = L.cells[c]
+		var st: Dictionary = styles[room]
+		if count[room] <= 2 or (c.x + c.y) % 2 == 0:
+			var spec: String = st.get("light", "bulb:warm")
+			var tone: Array = TONES.get(spec.get_slice(":", 1), TONES["warm"])
+			_fixture(mb, cell_center(c), room, spec.get_slice(":", 0), tone[0], tone[1], 5.5)
+		if st.get("win", "0") == "1":
+			for d in 4:
+				var key := LevelLogic.edge_key(c, d)
+				if L.edges.get(key, LevelLogic.Edge.WALL) == LevelLogic.Edge.WALL and not L.cells.has(c + LevelLogic.DIRV[d]) and (c.x * 7 + c.y * 3 + d) % 3 != 0:
+					var info := edge_info(key)
+					_window(room_mb[room], info.p0 + info.a * (CELL * 0.5) + Vector3(0, 1.55, 0), info.a, -dir_vec(d))
+	for p: Array in meta.props:
+		var kind: String = p[0]
+		match kind:
+			"box":
+				room_mb[p[1]].box(p[8], Vector3(float(p[2]), float(p[3]), float(p[4])), Vector3(float(p[5]), float(p[6]), float(p[7])), 1.0)
+			"solid":
+				_solid(Vector3(float(p[1]), float(p[2]), float(p[3])), Vector3(float(p[4]), float(p[5]), float(p[6])))
+			"glow":
+				_glow(Vector3(float(p[2]), float(p[3]), float(p[4])), p[1], Color.html(p[5]), float(p[6]), float(p[7]))
+			"sign":
+				_sign(room_mb[p[1]], p[2], Vector3(float(p[3]), float(p[4]), float(p[5])), Vector3(float(p[6]), 0, float(p[7])), Vector3(float(p[8]), 0, float(p[9])), float(p[10]) if p.size() > 10 else 0.62, float(p[11]) if p.size() > 11 else 0.24)
+			"pic":
+				_picture(room_mb[p[1]], Vector3(float(p[2]), float(p[3]), float(p[4])), Vector3(float(p[5]), 0, float(p[6])), Vector3(float(p[7]), 0, float(p[8])), float(p[9]), float(p[10]), p[11])
+			"stain":
+				_stain(room_mb[p[1]], Vector3(float(p[2]), float(p[3]), float(p[4])), float(p[5]), p[6] == "up")
+	# ducts: a sheet-metal mouth high on the north side of each end
+	for d: Array in meta.ducts:
+		var ends := []
+		for c: Vector2i in d:
+			var at := cell_center(c) + Vector3(0, 0, -1.25)
+			ends.append(at)
+			mb.box("iron", at + Vector3(0, 2.25, 0), Vector3(0.74, 0.5, 0.3), 2.0)
+			mb.quad("duct", at + Vector3(-0.3, 2.05, 0.155), Vector3(0.6, 0, 0), Vector3(0, 0.4, 0), Vector3(0, 0, 1), Vector2(0, 1), Vector2(1, 0), Vector2(0, -1), 9.0)
+			mb.box("iron", at + Vector3(0, 2.62, 0.4), Vector3(0.5, 0.3, 1.1), 2.0)
+		duct_pairs.append(ends)
+	phone_pos = meta.phone_at if meta.phone_at != Vector3.INF else cell_center(L.phone_cell) + Vector3(0, 0, -0.9)
+	mb.box("wood_mid", phone_pos + Vector3(0, 0.3, 0), Vector3(0.62, 0.6, 0.44), 1.0)
+	mb.box("#e8e2d0", phone_pos + Vector3(0, 0.605, 0), Vector3(0.46, 0.012, 0.34))
+	_solid(phone_pos + Vector3(0, 0.4, 0), Vector3(0.62, 0.8, 0.44))
+	var mi := MeshInstance3D.new()
+	mi.mesh = mb.build(self)
+	mi.layers = ALL_LAYERS
+	add_child(mi)
+	for r: String in room_mb:
+		if not room_mb[r].tools.is_empty():
+			_prop_mesh(room_mb[r], r)
+	_build_phone()
 
 
 func _build_bare() -> void:

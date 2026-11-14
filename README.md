@@ -4,6 +4,21 @@
 
 THE LOST PS2 JAM 向けの短編（空間パズル＋静かな探索）。Godot 4.7 / GDScript / GL Compatibility。
 
+## 構成（4話＋終幕）
+
+| 話 | 図面 | 場所 | 扉 | 最短 | 探す音 |
+|---|---|---|---|---|---|
+| 1 | `level/building.txt` | 本館1階 | 4枚 | 5回転 | 黒電話のベル |
+| 2 | `level/ch2.txt` | 宿直棟と渡り廊下 | 3枚 | 6回転 | ピンク電話のベル |
+| 3 | `level/ch3.txt` | 地下の浴場とボイラー室 | 3枚 | 6回転 | 壁掛けベル（配管が音を行き止まりへ運ぶ） |
+| 4 | `level/ch4.txt` | 旧館の最上階 | 2枚＋最後の扉 | 3回転 | 電話ではなく、扉を内側から叩く音 |
+
+- 電話に出ると、受話器の奥でダイヤルが回り、次の話の音が聞こえて暗転する。そのまま次の話が始まる。
+- 4話の最後の扉は、穴が閉じた部屋の内側にしかない。格子越しにノブを渡す（ノブを抜くボタン）と、向こうの誰かが扉を回し、扉の決まりどおり自分の通路が塞がる。残った電話のダイヤルを方向入力で3回まわすと、遠くで1話のベルが鳴り、タイトルへ戻る。
+- 進んだ話は保存され、タイトル画面の X（パッドは B）で続きから始められる。
+- 2〜4話の部屋の見た目・照明・音・小物は、図面ファイルの `room` `bell` `line` `amb` `duct` `prop` などの行で指定する（`scripts/level_meta.gd` の冒頭に書式）。規則を読む `scripts/level_logic.gd` はこれらの行を無視するので、見た目を変えても全探索の結果は変わらない。
+- 2〜4話のカメラは部屋ごとに自動で置く。常に部屋の南東の角から北か西を向くので、どの部屋に入っても画面の上が南になることはない。
+
 ## 操作
 
 | | キーボード | ゲームパッド |
@@ -44,8 +59,9 @@ THE LOST PS2 JAM 向けの短編（空間パズル＋静かな探索）。Godot 
 | `scripts/building.gd` `door.gd` | 平面図から3Dを組み立てる |
 | `scripts/sound_field.gd` | ベルの伝播（出入口グラフ上の最短経路） |
 | `scripts/main.gd` | 進行・カメラ・音のミックス・QAボット |
+| `scripts/story.gd` `level_meta.gd` | 話の切り替え、2〜4話の自動カメラ、終幕／図面ファイルの見た目と音の指定 |
 | `scripts/human.gd` `hud.gd` `shaders/post.gdshader` | 人物・HUD・画面仕上げ |
-| `tools/gen_textures.py` `gen_human_tex.py` `gen_audio.py` | テクスチャと効果音をコードから生成 |
+| `tools/gen_textures.py` `gen_textures2.py` `gen_human_tex.py` `gen_audio.py` | テクスチャと効果音をコードから生成 |
 | `tools/shot_human.gd` `test_human.gd` | 人物だけを撮影・点検する |
 | `docs/` | 提出用の資料 |
 
@@ -73,6 +89,9 @@ godot --headless --path . -s tools/solve.gd      # 盤面の全探索（解の�
 godot --path . -- --autoplay                     # 最短解を実機で通し、build/shots に画面を保存
 godot --path . -- --monkey --seed=1              # ランダム操作70手のあと電話まで到達できるか
 godot --path . -- --tour                         # 各部屋と各扉の画面を保存
+godot --path . -- --chapter=3 --autoplay         # 2〜4話は --chapter=N を付ける（--monkey も同じ）
+godot --path . -- --marathon                     # 1話から終幕まで、本物の場面転換を通して一気に遊ぶ
+godot --headless --path . -s tools/lab.gd -- --file=res://level/ch2.txt   # 2〜4話の盤面の計測
 ```
 
 2026-11-14 時点の結果：到達可能 4532 状態、詰み 0、未到達マス 0、最短 5 回転。扉1・扉2は必須、扉3・扉4はどちらか一方で解ける（別解あり）。`--autoplay` はエディタ実行・Windows書き出し版の両方で完走、`--monkey` は seed 1〜3 で完走。

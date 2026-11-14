@@ -1,0 +1,31 @@
+# chapter 4: the old wing. no telephone. door 3 has its socket inside the shut room: it is not ours to turn.
+map
++-+-+-+-+-+
+|.|aDa a|.|
++-+D1D+ +-+
+|rDx|bDb|.|
++ 3D+-2D+-+
+|rgy|cDc c|
++v+-+-+-+ +
+|h h h h h|
++-+-+-+-+-+
+end
+door 1 type=cw start=W slots=ENW
+door 2 type=ccw start=N slots=ENS
+door 3 type=ccw start=N slots=NE
+phone 1 2
+start 3 3
+
+room a wall=wall_attic floor=floor_old ceil=ceil_old step=wood light=bulb:dim win=1
+room b wall=wall_attic floor=floor_old ceil=ceil_old step=wood light=bulb:dim
+room c wall=wall_attic floor=floor_old ceil=ceil_old step=wood light=bulb:warm
+room h wall=wall_attic floor=floor_old ceil=ceil_old step=wood light=bulb:dim win=1
+room x wall=wall_old floor=floor_old ceil=ceil_old step=wood light=bulb:dim
+room y wall=wall_old floor=floor_old ceil=ceil_old step=wood light=bulb:warm
+room r wall=wall_old floor=floor_tatami ceil=ceil_old step=carpet light=bulb:warm
+bell knock 4.0 1.2 -5 8
+goal grille
+final_door 3
+source 2.6 5.0
+phone_at 5.4 6.45
+prop sign h sign_old 7.5 2.42 9.12 1 0 0 1

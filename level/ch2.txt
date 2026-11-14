@@ -1,0 +1,37 @@
+# chapter 2: the night-duty annex. two proven boards (LAB 01 and 02) joined by a covered walkway.
+map
++-+-+-+-+-+-+
+|k k k k k k|
++ +-+-+-+-+ +
+|wgt t t|m m|
++ +-+-+D2D+-+
+|w|.|n|cDc|.|
++ +-+D3D+ +-+
+|w|.|nDc c|.|
++ +-+-+-+-+-+
+|w|.|.|.|.|.|
++ +-+-+-+-+-+
+|w|a a a a|.|
++D1D+ +-+-+-+
+|bDb b|.|.|.|
++-+-+-+-+-+-+
+end
+door 1 type=ccw start=W slots=EWS
+door 2 type=ccw start=E slots=EWS
+door 3 type=ccw start=E slots=EWS
+phone 2 1
+start 3 5
+
+room k wall=wall_walk floor=floor_boards ceil=ceil_tin step=wood light=bulb:dim win=1
+room w wall=wall_duty floor=floor_lino ceil=ceil_panel step=concrete light=tube:fluo win=1
+room a wall=wall_duty floor=floor_vinyl ceil=ceil_panel step=concrete light=tube:fluo win=1
+room b wall=wall_wood floor=floor_wood ceil=ceil_wood step=wood light=bulb:warm
+room t wall=wall_juraku floor=floor_tatami ceil=ceil_wood step=carpet light=lamp:lamp
+room m wall=wall_duty floor=floor_wood ceil=ceil_wood step=wood light=bulb:warm
+room n wall=wall_kitchen floor=floor_kitchen ceil=ceil_panel step=tile light=tube:cold
+room c wall=wall_kitchen floor=floor_kitchen ceil=ceil_panel step=tile light=tube:cold
+bell bell2 3.0 1.05 0 0
+line line2 3.0 1.0
+amb rain_loop -17
+prop sign c sign_duty 10.0 2.42 6.12 1 0 0 1
+prop sign k sign_walk 1.5 2.42 0.12 1 0 0 1

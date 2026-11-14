@@ -29,7 +29,14 @@ func _init() -> void:
 		if L.doors[i].id == door_id:
 			di = i
 	var field := SoundField.new()
-	field.setup(L, B, doors, Building.cell_center(L.phone_cell) + Vector3(0, 0.7, 0))
+	var meta := LevelMeta.load_file(path)
+	var ducts := []
+	for d: Array in meta.ducts:
+		ducts.append([Building.cell_center(d[0]) + Vector3(0, 0, -1.25), Building.cell_center(d[1]) + Vector3(0, 0, -1.25)])
+	var src := Building.cell_center(L.phone_cell) + Vector3(0, 0.7, 0)
+	if meta.source != Vector3.INF:
+		src = meta.source
+	field.setup(L, B, doors, src, ducts)
 	var cells: Array = L.cells.keys()
 	cells.sort()
 	print("level %s, source in cell %s, turning door %d" % [path, L.phone_cell, door_id])
@@ -47,7 +54,7 @@ func _init() -> void:
 				dirn = ("E" if from.x > 0 else "W") if absf(from.x) > absf(from.z) else ("S" if from.z > 0 else "N")
 			if not table.has(c):
 				table[c] = []
-			table[c].append("%s: %5.1f dB %5.0f Hz from %s" % [LevelLogic.DIRNAME[pos], db, cut, dirn])
+			table[c].append("%s: %5.1f dB %5.0f Hz %s%s" % [LevelLogic.DIRNAME[pos], db + meta.source_db, cut, dirn, " PIPE" if q.pipe > 0.5 else ""])
 	for c: Vector2i in cells:
 		print("  cell %s   %s" % [c, "   |   ".join(table[c])])
 	B.free()

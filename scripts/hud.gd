@@ -39,6 +39,10 @@ var echo_pos: Vector2 = Vector2.ZERO
 const AMBER := Color(1.0, 0.72, 0.3)
 const DULL := Color(0.5, 0.42, 0.34)
 const WALLC := Color(0.5, 0.17, 0.08)
+var aid_pipe: float = 0.0         # the bell is arriving through a duct
+var cont: int = 1                 # title: a later chapter can be continued
+var dial_n: int = -1              # last scene: how far the dial has been turned
+var echo_far: bool = false
 var lab_rows: Array = []          # DOOOOOR LAB list: [name, result]
 var lab_sel: int = 0
 var lab_title: String = ""
@@ -153,6 +157,8 @@ func _draw_title() -> void:
 		_tex_c(_logo_sub, Vector2(256.0, 96.0 + main_h * 0.5 + 6.0 + _logo_sub.get_size().y * 0.5), 1.0, _a(Color.WHITE, ta))
 	var blink: float = 0.55 + 0.45 * cos(TAU * 1.2 * t)
 	_text_c("PRESS START", 256.0, 250.0, _a(PALE, ta * blink))
+	if cont > 1:
+		_text_c(_key("B", "X") + "  つづきから", 256.0, 276.0, _a(DIM, ta))
 	var controls: String = _key("十字 移動   A けってい   B ノブ   Y 音のめやす",
 		"←↑↓→ 移動   Z けってい   X ノブ   C 音のめやす")
 	_text_c(controls, 256.0, 343.0, _a(DIM, 0.7 * ta))
@@ -176,6 +182,13 @@ func _draw_play() -> void:
 		_text_c("音のめやす " + nm, 256.0, 30.0, _a(PALE, clampf(aid_note * 2.0, 0.0, 1.0)))
 	if knob_known:
 		_draw_knob()
+	if dial_n >= 0:
+		for i in 3:
+			var dc := Vector2(236.0 + 20.0 * float(i), 352.0)
+			draw_circle(dc, 6.0, Color(0, 0, 0, 0.6))
+			draw_arc(dc, 6.0, 0.0, TAU, 20, _a(PALE, 0.9), 1.0)
+			if i < dial_n:
+				draw_circle(dc, 3.5, BRASS)
 	if prompt_act:
 		var p: float = 0.5 + 0.5 * sin(t * 3.2)
 		_glyph(ACT_C, _key("A", "Z"), 0.78 + 0.22 * p, 9.0 + 0.5 * p)
@@ -229,6 +242,9 @@ func _draw_glow() -> void:
 			if clear:
 				draw_arc(ep, r, 0.0, TAU, 40, Color(0, 0, 0, 0.35 * fa), 3.0)
 				draw_arc(ep, r, 0.0, TAU, 40, _a(colr, fa), 1.0)
+				if aid_pipe > 0.4:
+					# out of a pipe: every ring is doubled, like the walls of a tube
+					draw_arc(ep, r + 3.0, 0.0, TAU, 40, _a(PALE, fa * aid_pipe), 1.0)
 			else:
 				var segs: int = 14
 				for k2 in segs:

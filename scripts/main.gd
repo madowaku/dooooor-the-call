@@ -56,7 +56,22 @@ const ROOM_AC := {
 	"r": [0.55, 0.06, 0.12, 0.44], "k": [0.45, 0.5, 0.0, 0.12], "p": [0.4, 0.86, -0.04, 0.05],
 }
 
+## chapters 2-4 take the answer of a room from what its floor is made of
+const AC_BY := {"concrete": [0.78, 0.3, 0.02, 0.22], "wood": [0.66, 0.5, 0.0, 0.14], "carpet": [0.5, 0.8, -0.03, 0.06], "tile": [0.56, 0.06, 0.12, 0.44]}
+const EXTRA_SOUNDS := ["bell2_ring", "bell2_wall", "bell2_tail", "bell3_ring", "bell3_wall", "bell3_tail", "bell3_pipe",
+	"knock_ring", "knock_wall", "pipe_tick", "line2", "line3", "dial_wind", "dial_return", "far_bell1", "rain_loop", "drip", "boiler_hum"]
+
 var L: LevelLogic
+var meta: LevelMeta
+var story: Story
+var ring_period := 3.0
+var ring_len := 1.05
+var src_db := 0.0
+var wall_gain := 0.0
+var line_period := 3.0
+var line_len := 1.0
+var bell_pipe: AudioStreamPlayer3D
+var pipe_s := 0.0
 var vp: SubViewport
 var screen: TextureRect
 var post: ShaderMaterial
@@ -103,6 +118,7 @@ var srv: AudioEffectReverb
 var amb_duck := 1.0
 var idle_t := 0.0
 var amb: AudioStreamPlayer
+var amb_extra: Array = []
 var loops: Array = []
 var bell_db := -30.0
 var bell_cut := 800.0
@@ -136,11 +152,29 @@ func _ready() -> void:
 			elif a.begins_with("--lab="):
 				lab_menu = true
 				lab_file = a.substr(6)
+			elif a == "--marathon":
+				Story.marathon = true
+			elif a.begins_with("--chapter="):
+				Story.chapter = clampi(int(a.substr(10)), 1, Story.CHAPTERS.size())
+				Story.resume = Story.chapter > 1
 	lab = lab_file != ""
+	var level_path := ("res://level/lab/%s.txt" % lab_file) if lab else Story.level_path()
 	L = LevelLogic.new()
-	L.load_file(("res://level/lab/%s.txt" % lab_file) if lab else "res://level/building.txt")
+	L.load_file(level_path)
+	if not lab and Story.chapter > 1:
+		meta = LevelMeta.load_file(level_path)
+		ring_period = meta.period
+		ring_len = meta.on
+		src_db = meta.source_db
+		wall_gain = meta.wall_db
+		line_period = meta.line_period
+		line_len = meta.line_on
+	story = Story.new()
+	story.m = self
+	add_child(story)
 	_setup_view()
 	_setup_world()
+	story.setup_world()
 	_setup_sound_sources()
 	var args := OS.get_cmdline_user_args()
 	shot_dir = ProjectSettings.globalize_path("res://build/shots")
@@ -150,6 +184,8 @@ func _ready() -> void:
 		_enter_lab()
 	elif lab_menu:
 		_enter_lab_menu()
+	elif Story.resume:
+		story.enter_chapter()
 	else:
 		_enter_title()
 	for a: String in args:
@@ -162,7 +198,7 @@ func _ready() -> void:
 		_bot_lab.call_deferred()
 	elif lab or lab_menu:
 		pass
-	elif "--autoplay" in args:
+	elif "--autoplay" in args or Story.marathon:
 		bot = true
 		_bot_autoplay.call_deferred()
 	elif "--monkey" in args:
@@ -236,6 +272,14 @@ func _setup_audio() -> void:
 		w.loop_mode = AudioStreamWAV.LOOP_FORWARD
 		w.loop_begin = 0
 		w.loop_end = int(w.get_length() * w.mix_rate)
+	for f: String in EXTRA_SOUNDS:
+		if ResourceLoader.exists("res://assets/audio/%s.wav" % f):
+			streams[f] = load("res://assets/audio/%s.wav" % f)
+			if f.ends_with("_ring") or f.ends_with("_wall") or f.ends_with("_pipe") or f.ends_with("_loop") or f.ends_with("_hum"):
+				var w2: AudioStreamWAV = streams[f]
+				w2.loop_mode = AudioStreamWAV.LOOP_FORWARD
+				w2.loop_begin = 0
+				w2.loop_end = int(w2.get_length() * w2.mix_rate)
 	for f: String in ["cloth1", "cloth2", "cloth3", "creak1", "creak2", "creak3"]:
 		streams[f] = load("res://assets/audio/%s.ogg" % f)
 	for surf: String in ["wood", "carpet", "concrete"]:
@@ -297,6 +341,7 @@ func _setup_world() -> void:
 	B = Building.new()
 	world.add_child(B)
 	B.bare = lab
+	B.meta = meta
 	B.build(L)
 	B.build_exterior(EXT)
 	for i in L.doors.size():
@@ -316,7 +361,7 @@ func _setup_world() -> void:
 	player.add_child(human)
 	human.footstep.connect(_on_footstep)
 	world.add_child(player)
-	player.position = Building.cell_center(L.start_cell) + (Vector3.ZERO if lab else Vector3(0, 0, -0.9))
+	player.position = Building.cell_center(L.start_cell) + (Vector3.ZERO if lab or meta != null else Vector3(0, 0, -0.9))
 	title_human = Human.new()
 	world.add_child(title_human)
 	title_human.position = EXT + Vector3(0.9, 0, 3.0)
@@ -352,12 +397,21 @@ func _setup_world() -> void:
 	vp.add_child(layer)
 	layer.add_child(hud)
 	field = SoundField.new()
-	field.setup(L, B, doors, B.phone_pos + Vector3(0, 0.7, 0))
+	var src := B.phone_pos + Vector3(0, 0.7, 0)
+	if meta != null and meta.source != Vector3.INF:
+		src = meta.source
+	field.setup(L, B, doors, src, B.duct_pairs)
 	field.update()
+
+## the chapter's own bell if it has one, the first telephone's otherwise
+func _snd(part: String) -> String:
+	if meta != null and streams.has("%s_%s" % [meta.bell, part]):
+		return "%s_%s" % [meta.bell, part]
+	return "bell_" + part
 
 func _setup_sound_sources() -> void:
 	bell = AudioStreamPlayer3D.new()
-	bell.stream = streams["bell_ring"]
+	bell.stream = streams[_snd("ring")]
 	bell.bus = "Bell"
 	bell.attenuation_model = AudioStreamPlayer3D.ATTENUATION_DISABLED
 	bell.panning_strength = 1.4
@@ -366,20 +420,30 @@ func _setup_sound_sources() -> void:
 	# the second voice of the same bell: what comes straight through the walls. it always points at
 	# the real telephone, however the doors stand, and it never gets clear.
 	bell_wall = AudioStreamPlayer3D.new()
-	bell_wall.stream = streams["bell_wall"]
+	bell_wall.stream = streams[_snd("wall")]
 	bell_wall.bus = "Wall"
 	bell_wall.attenuation_model = AudioStreamPlayer3D.ATTENUATION_DISABLED
 	bell_wall.panning_strength = 1.2
 	bell_wall.volume_db = -60.0
 	world.add_child(bell_wall)
+	if meta != null and streams.has(meta.bell + "_pipe"):
+		# the same ring as it leaves the mouth of a duct. locked to the bell, crossfaded with it.
+		bell_pipe = AudioStreamPlayer3D.new()
+		bell_pipe.stream = streams[meta.bell + "_pipe"]
+		bell_pipe.bus = "Bell"
+		bell_pipe.attenuation_model = AudioStreamPlayer3D.ATTENUATION_DISABLED
+		bell_pipe.panning_strength = 1.4
+		bell_pipe.volume_db = -60.0
+		world.add_child(bell_pipe)
+		bell_pipe.play()
 	bell.play()
 	bell_wall.play()
 	bell_tail = AudioStreamPlayer.new()
-	bell_tail.stream = streams["bell_tail"]
+	bell_tail.stream = streams[_snd("tail")]
 	bell_tail.bus = "Bell"
 	add_child(bell_tail)
 	line = AudioStreamPlayer.new()
-	line.stream = streams["line_next"]
+	line.stream = streams[meta.line] if meta != null and streams.has(meta.line) else streams["line_next"]
 	line.volume_db = -15.0
 	add_child(line)
 	amb = AudioStreamPlayer.new()
@@ -388,7 +452,18 @@ func _setup_sound_sources() -> void:
 	amb.volume_db = -22.0
 	add_child(amb)
 	amb.play()
-	if lab:
+	if meta != null:
+		for a: Array in meta.ambs:
+			if streams.has(a[0]):
+				var ap := AudioStreamPlayer.new()
+				ap.stream = streams[a[0]]
+				ap.bus = "Amb"
+				ap.volume_db = a[1]
+				ap.set_meta("base", a[1])
+				add_child(ap)
+				ap.play()
+				amb_extra.append(ap)
+	if lab or meta != null:
 		return
 	for src: Array in [["clock_tick", B.clock_pos, -9.0, 1.6, 11.0], ["vending_hum", B.vending_pos, -15.0, 1.2, 8.0], ["fluoro_buzz", Vector3(1.5, 2.6, 13.0), -17.0, 1.2, 7.0]]:
 		var p := AudioStreamPlayer3D.new()
@@ -515,6 +590,7 @@ func wait(t: float) -> void:
 func _enter_title() -> void:
 	state = St.TITLE
 	hud.mode = "title"
+	hud.cont = Story.saved()
 	hud.title_alpha = 0.0
 	hud.fade = 1.0
 	cam_override = true
@@ -621,7 +697,7 @@ func _on_act() -> void:
 			if near_phone:
 				if lab:
 					_lab_finish()
-				else:
+				elif not story.on_phone():
 					_ending()
 			elif not near_door.is_empty():
 				var d: Door = near_door.door
@@ -637,6 +713,14 @@ func _on_act() -> void:
 					_no_knob(d)
 
 func _on_back() -> void:
+	if state == St.TITLE:
+		if hud.cont > 1 and hud.title_alpha > 0.5:
+			Story.chapter = hud.cont
+			Story.resume = true
+			_restart()
+		return
+	if story.on_back():
+		return
 	if state == St.DOOR:
 		_leave_door(true)
 	elif state == St.PLAY and not near_door.is_empty() and near_door.socket and L.knob_on == near_door.door.index:
@@ -891,17 +975,19 @@ func _ending() -> void:
 	await wait(0.7)
 	sfx("receiver_lift", 0.0)
 	bell_stopped = true
-	if fmod(bell.get_playback_position(), 3.0) < 1.3:
+	if fmod(bell.get_playback_position(), ring_period) < ring_len + 0.25:
 		bell_tail.volume_db = bell_db - 2.0
 		bell_tail.play()
 	bell.stop()
 	bell_wall.stop()
+	if bell_pipe != null:
+		bell_pipe.stop()
 	B.phone_handset.visible = false
 	human.show_handset(true)
 	human.pose = "phone"
 	human.has_look = false
 	await wait(2.6)
-	cam.global_position = Vector3(6.25, 1.5, 3.42)
+	cam.global_position = B.phone_pos + Vector3(-1.25, 1.5, -0.2)
 	cam.look_at(stand + Vector3(0, 1.5, 0))
 	cam.fov = 36.0
 	var tw2 := create_tween()
@@ -912,9 +998,10 @@ func _ending() -> void:
 	await wait(7.7)
 	# the building, from above, exactly as the player left it.
 	env.fog_density = 0.0
-	cam.global_position = Vector3(7.5, 24.5, 9.5)
-	cam.look_at(Vector3(7.5, 0, 9.0), Vector3(0, 0, -1))
-	cam.fov = 43.0
+	var plan := story.plan_cam()
+	cam.global_position = plan[0]
+	cam.look_at(plan[1], Vector3(0, 0, -1))
+	cam.fov = plan[2]
 	await wait(8.0)
 	var tw3 := create_tween()
 	tw3.tween_property(hud, "fade", 1.0, 3.0)
@@ -924,6 +1011,9 @@ func _ending() -> void:
 	line.stop()
 	sfx("line_cut", -8.0)
 	await wait(1.6)
+	# not an ending: the next building is already ringing
+	story.advance()
+	return
 	hud.mode = "end"
 	var tw4 := create_tween()
 	tw4.tween_property(hud, "end_alpha", 1.0, 2.5)
@@ -998,7 +1088,7 @@ func _process(delta: float) -> void:
 			_door_input()
 	_update_sound(delta)
 	hud.use_pad = use_pad
-	hud.knob_in_hand = L.knob_on == -1
+	hud.knob_in_hand = L.knob_on == -1 and not story.knob_gone
 	hud.aid_on = aid_on
 
 func _title_camera() -> void:
@@ -1011,6 +1101,8 @@ func _title_camera() -> void:
 func _cam_cfg() -> Array:
 	if lab:
 		return lab_cfg
+	if meta != null:
+		return story.cam_cfg(cam_room)
 	return CELL_CAMS.get(cam_cell, CAMS[cam_room])
 
 func _update_room(force: bool) -> void:
@@ -1018,13 +1110,15 @@ func _update_room(force: bool) -> void:
 	if room == "":
 		return
 	var cell := Building.world_to_cell(player.global_position)
-	var key := cell if CELL_CAMS.has(cell) and not lab else NO_CELL
+	var key := cell if CELL_CAMS.has(cell) and not lab and meta == null else NO_CELL
 	if room == cam_room and key == cam_cell and not force:
 		return
 	if room != cam_room:
 		cam_room = room
 		_update_layers()
-		step_surface = Building.ROOMS[room].step
+		step_surface = B.styles[room].step
+		if step_surface == "tile":
+			step_surface = "concrete"
 	cam_cell = key
 	if cam_override:
 		return
@@ -1035,6 +1129,8 @@ func _update_room(force: bool) -> void:
 	cam.look_at(cam_look)
 	if key != NO_CELL and not phone_seen and state == St.PLAY:
 		_discover()
+	elif meta != null and not phone_seen and state == St.PLAY and story.sees_phone(cell):
+		story.discover()
 
 ## the first time the telephone comes into view: stop, and let it be looked at.
 func _discover() -> void:
@@ -1106,9 +1202,10 @@ func _scan_interactions() -> void:
 				bd = dist
 				near_door = {"door": d, "socket": s}
 	var ph := B.phone_pos
-	near_phone = pc == L.phone_cell and Vector2(p.x - ph.x, p.z - ph.z - 0.5).length() < 1.0
+	near_phone = pc == L.phone_cell and Vector2(p.x - ph.x, p.z - ph.z - 0.5).length() < 1.0 and story.phone_usable()
 	hud.prompt_act = near_phone or not near_door.is_empty()
 	hud.prompt_back = not near_door.is_empty() and near_door.socket and L.knob_on == near_door.door.index
+	story.scan(pc, p)
 	human.has_look = hud.prompt_act
 	if not hud.prompt_act and idle_t > 1.1 and not bell_stopped:
 		# standing still, the head drifts toward wherever the ringing is coming from
@@ -1160,12 +1257,12 @@ func _update_sound(delta: float) -> void:
 	if field_timer <= 0.0:
 		field_timer = 0.12
 		field.update()
-	var ring_on := not bell_stopped and fmod(bell.get_playback_position(), 3.0) < 1.05
+	var ring_on := not bell_stopped and fmod(bell.get_playback_position(), ring_period) < ring_len
 	hud.ring_env = 1.0 if ring_on else 0.0
 	# the handset rattles in its cradle exactly while the clapper runs
-	B.phone_handset.rotation.z = sin(clock * 83.0) * 0.045 if ring_on else 0.0
+	B.phone_handset.rotation.z = sin(clock * 83.0) * 0.045 if ring_on and not story.is_final() else 0.0
 	var lpos_ := line.get_playback_position() if line.playing else -1.0
-	hud.echo_env = 1.0 if lpos_ >= 5.8 and fmod(lpos_ - 5.8, 3.0) < 1.0 else 0.0
+	hud.echo_env = 1.0 if lpos_ >= 5.8 and fmod(lpos_ - 5.8, line_period) < line_len else 0.0
 	if hud.echo_env > 0.0 and not cam.is_position_behind(B.phone_pos):
 		hud.echo_pos = cam.unproject_position(B.phone_pos + Vector3(0, 0.75, 0))
 	var t_db := -30.0
@@ -1174,6 +1271,10 @@ func _update_sound(delta: float) -> void:
 	var t_wall := -60.0
 	var from := Vector3.ZERO
 	var ac: Array = ROOM_AC.get(cam_room, ROOM_AC["s"])
+	var t_pipe := 0.0
+	if meta != null and cam_room != "":
+		var stl: Dictionary = B.styles[cam_room]
+		ac = AC_BY.get(stl.get("ac", stl.step), AC_BY["concrete"])
 	if state == St.TITLE or state == St.LABMENU or (state == St.TRANSITION and hud.mode == "title"):
 		t_db = -25.0
 		t_cut = 1100.0
@@ -1188,12 +1289,13 @@ func _update_sound(delta: float) -> void:
 		var q := field.query(lpos)
 		var cost: float = q.cost
 		var mf: float = q.muffle
-		t_db = clampf(-0.72 * cost, -42.0, 0.0) - 2.0
+		t_db = clampf(-0.72 * cost, -42.0, 0.0) - 2.0 + src_db
+		t_pipe = clampf(float(q.get("pipe", 0.0)), 0.0, 1.0)
 		t_cut = clampf(15000.0 * pow(0.26, mf) / (1.0 + cost / 50.0), 380.0, 15000.0)
 		t_wet = clampf(0.06 + cost / 55.0 + mf * 0.1 + float(ac[2]), 0.04, 0.62)
 		var flat := Vector2(field.phone_pos.x - lpos.x, field.phone_pos.z - lpos.z).length()
 		# with a clear path the brass covers it; it only matters where the air route is shut or long
-		t_wall = clampf(-4.0 - 2.4 * flat, -60.0, -8.0) - maxf(0.0, 12.0 - cost)
+		t_wall = clampf(-4.0 - 2.4 * flat, -60.0, -8.0) - maxf(0.0, 12.0 - cost) + wall_gain
 		bell_wall.global_position = listener.global_position + Vector3(field.phone_pos.x - lpos.x, 0, field.phone_pos.z - lpos.z).normalized() * 3.0 if flat > 0.3 else listener.global_position
 		from = q.from
 		var dv := Vector3(from.x - lpos.x, 0, from.z - lpos.z)
@@ -1223,14 +1325,21 @@ func _update_sound(delta: float) -> void:
 	bell_db = lerpf(bell_db, t_db, k)
 	bell_cut = lerpf(bell_cut, t_cut, k)
 	bell_wet = lerpf(bell_wet, t_wet, k)
-	bell.volume_db = bell_db
+	pipe_s = lerpf(pipe_s, t_pipe, k)
+	hud.aid_pipe = pipe_s
+	bell.volume_db = bell_db + linear_to_db(maxf(1.0 - 0.9 * pipe_s, 0.05))
 	bell.global_position = bell_src
+	if bell_pipe != null:
+		bell_pipe.volume_db = bell_db + linear_to_db(maxf(pipe_s, 0.001)) if not bell_stopped else -60.0
+		bell_pipe.global_position = bell_src
 	lp.cutoff_hz = bell_cut
 	rv.wet = bell_wet
 	var ag := linear_to_db(maxf(amb_gain * amb_duck, 0.0001))
 	amb.volume_db = -22.0 + ag
 	for p: AudioStreamPlayer3D in loops:
 		p.volume_db = float(p.get_meta("base")) + ag
+	for p2: AudioStreamPlayer in amb_extra:
+		p2.volume_db = float(p2.get_meta("base")) + ag
 
 ## a direction on the floor, as it appears on the screen (x right, y down)
 func _screen_dir(dv: Vector3) -> Vector2:
@@ -1255,9 +1364,11 @@ func _on_footstep() -> void:
 func _shot(nm: String) -> void:
 	# with the visual aid on, photograph the lights while the bell is actually sounding
 	var guard := 0
-	while aid_on and not bell_stopped and state != St.TITLE and absf(fmod(bell.get_playback_position(), 3.0) - 0.85) > 0.12 and guard < 900:
+	while aid_on and not bell_stopped and state != St.TITLE and absf(fmod(bell.get_playback_position(), ring_period) - 0.85) > 0.12 and guard < 900:
 		guard += 1
 		await get_tree().process_frame
+	if Story.chapter > 1 and not lab:
+		nm = "c%d_%s" % [Story.chapter, nm]
 	await RenderingServer.frame_post_draw
 	DirAccess.make_dir_recursive_absolute(shot_dir)
 	var img := get_viewport().get_texture().get_image()
@@ -1437,35 +1548,20 @@ func _bot_lab() -> void:
 
 func _bot_autoplay() -> void:
 	Engine.time_scale = 3.0
-	await wait(5.0)
-	await _shot("01_title")
-	_start_game()
+	if state == St.TITLE:
+		await wait(5.0)
+		await _shot("01_title")
+		_start_game()
 	await _bot_until(func() -> bool: return state == St.PLAY)
 	await wait(1.5)
 	await _shot("02_corridor")
 	var res := Solver.search(L, Building.world_to_cell(player.global_position))
-	var ok := await _bot_play(res.actions, true)
+	var ok: bool = res.found and await _bot_play(res.actions, true)
 	if ok:
-		await _bot_goto(B.phone_pos + Vector3(0, 0, 0.9))
-		await get_tree().process_frame
-		await get_tree().process_frame
-		await _shot("30_phone_room")
-		if not near_phone:
-			ok = false
-			bot_fail = "phone not in reach"
-		else:
-			_on_act()
-			await wait(4.2)
-			await _shot("31_pickup")
-			await wait(4.0)
-			await _shot("32_silence")
-			await wait(9.0)
-			await _shot("33_plan")
-			ok = await _bot_until(func() -> bool: return state == St.END, 60.0)
-			await _shot("34_end")
-	print("AUTOPLAY %s %s" % ["OK" if ok else "FAIL", bot_fail])
+		ok = await story.bot_finish(true)
+		await _shot("34_end")
+	print("AUTOPLAY %s chapter %d %s" % ["OK" if ok else "FAIL", Story.chapter, bot_fail])
 	get_tree().quit(0 if ok else 1)
-
 func _bot_tour() -> void:
 	await wait(3.0)
 	await _shot("t_title")
@@ -1501,8 +1597,9 @@ func _bot_monkey() -> void:
 	for a: String in OS.get_cmdline_user_args():
 		if a.begins_with("--seed="):
 			rng.seed = int(a.substr(7))
-	await wait(4.0)
-	_start_game()
+	if state == St.TITLE:
+		await wait(4.0)
+		_start_game()
 	await _bot_until(func() -> bool: return state == St.PLAY)
 	var ok := true
 	var turns := 0
@@ -1536,14 +1633,8 @@ func _bot_monkey() -> void:
 		print("monkey: %d random actions, %d door turns; knob_on=%d; solver says reachable=%s in %d turns" % [log.size(), turns, L.knob_on, res.found, res.rot])
 		ok = res.found and await _bot_play(res.actions, false)
 		if ok:
-			await _bot_goto(B.phone_pos + Vector3(0, 0, 0.9))
-			await get_tree().process_frame
-			await get_tree().process_frame
-			ok = near_phone
-			if ok:
-				_on_act()
-				ok = await _bot_until(func() -> bool: return state == St.END, 90.0)
+			ok = await story.bot_finish(false)
 	if not ok:
 		print("last actions: ", log.slice(-6))
-	print("MONKEY %s %s" % ["OK" if ok else "FAIL", bot_fail])
+	print("MONKEY %s chapter %d %s" % ["OK" if ok else "FAIL", Story.chapter, bot_fail])
 	get_tree().quit(0 if ok else 1)

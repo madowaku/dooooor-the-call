@@ -1,0 +1,32 @@
+# chapter 3: the basement. LAB 03 as the walking puzzle; a duct carries the bell to a dead end.
+map
++-+-+-+-+-+
+|p|uDu c|o|
++ +D1-+ + +
+|p|bDb|c|o|
++D2D+ + + +
+|qDbDb|c|s|
++-+-3D+ + +
+|.|.|r c s|
++-+-+-+-+-+
+end
+door 1 type=ccw start=N slots=NWS
+door 2 type=ccw start=S slots=EWS
+door 3 type=cw start=E slots=EN
+phone 0 1
+start 4 2
+
+room p wall=wall_bath floor=floor_bath ceil=ceil_panel step=tile light=tube:cold
+room q wall=wall_bath floor=floor_bath ceil=ceil_panel step=tile light=tube:cold
+room b wall=wall_bath floor=floor_bath ceil=ceil_panel step=tile light=tube:cold
+room u wall=wall_cellar floor=floor_concrete ceil=ceil_pipes step=concrete light=bulb:dim
+room c wall=wall_cellar floor=floor_concrete ceil=ceil_pipes step=concrete light=bulb:dim
+room r wall=wall_cellar floor=floor_concrete ceil=ceil_pipes step=concrete light=bulb:dim
+room o wall=wall_boiler floor=floor_boiler ceil=ceil_pipes step=concrete light=bulb:red
+room s wall=wall_boiler floor=floor_boiler ceil=ceil_pipes step=concrete light=bulb:dim
+bell bell3 3.0 1.05 0 -7
+line line3 4.0 1.2
+amb boiler_hum -21
+duct 0 1 4 0
+prop sign o sign_boiler 13.5 2.42 0.12 1 0 0 1
+prop sign c sign_cellar 10.5 2.42 0.12 1 0 0 1

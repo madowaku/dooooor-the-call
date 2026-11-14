@@ -26,7 +26,9 @@ Nothing chases you. Nothing jumps out. There is only the building, the bell, and
 
 When you answer, the ringing stops.
 
-**Play time:** about 10 minutes.
+**Four short chapters and a last scene.** Each telephone you answer lets you hear the next one, somewhere else in the same building.
+
+**Play time:** not yet measured for the full game (chapter 1 alone is roughly ten minutes).
 **No text tutorial, no music.** Headphones recommended. An optional on-screen sound indicator (C key / Y button: off, normal, strong) shows the bell as ripples on the rim of the screen: where it comes from, how loud it is, and whether a closed door is muffling it. The game can be finished with the sound off.
 
 ## Controls
@@ -56,7 +58,7 @@ Code, level design, procedural textures and synthesized sound effects were writt
 - Kind of project: Downloadable (Windows) + HTML (optional web build, viewport 1024 x 768, fullscreen button on)
 - Genre: Puzzle / Adventure
 - Tags: ps2, retro, low-poly, puzzle, atmospheric, short, liminal, walking, sound, singleplayer
-- Average session: about 10 minutes
+- Average session: to be measured (four chapters)
 - Languages: no reading required (a few Japanese room signs as set dressing)
 - Inputs: Keyboard, Gamepad
 - Accessibility: configurable sound indicator; one-button-plus-direction interaction; no time pressure

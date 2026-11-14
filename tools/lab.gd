@@ -28,7 +28,15 @@ func _init() -> void:
 			nd = int(a.substr(8))
 		elif a.begins_with("--seed="):
 			sd = int(a.substr(7))
-	if gen > 0:
+	var one := ""
+	for a: String in OS.get_cmdline_user_args():
+		if a.begins_with("--file="):
+			one = a.substr(7)
+	if one != "":
+		var L1 := LevelLogic.new()
+		L1.load_file(one)
+		_report(one, L1, "")
+	elif gen > 0:
 		_generate(gen, w, h, nd, sd)
 	else:
 		_evaluate_dir("res://level/lab")
