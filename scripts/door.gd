@@ -13,6 +13,8 @@ const KNOB_X := 1.345
 const KNOB_Y := 1.03
 const RIDER_X := 1.18
 const RIDER_Z := 0.62
+## paint of each leaf, matching tools/gen_textures.py: the doors are the nouns of this building
+const PAINT := {1: "#60806a", 2: "#964a3a", 3: "#be9646", 4: "#5c708c"}
 
 var index := 0
 var def: LevelLogic.DoorDef
@@ -72,6 +74,7 @@ func setup(i: int, d: LevelLogic.DoorDef, building: Building) -> void:
 	body.add_child(pc)
 	add_child(body)
 
+	_build_scrapes()
 	pivot = Node3D.new()
 	add_child(pivot)
 	pivot.rotation.y = d.pos * PI * 0.5
@@ -80,14 +83,15 @@ func setup(i: int, d: LevelLogic.DoorDef, building: Building) -> void:
 	var X := Vector3(w, 0, 0)
 	var Y := Vector3(0, LEAF_H, 0)
 	var o := Vector3(LEAF_A, 0.02, 0)
-	var front := "door_socket" if side > 0 else "door_blank"
-	var back := "door_blank" if side > 0 else "door_socket"
+	var front := ("door_socket_%d" if side > 0 else "door_blank_%d") % d.id
+	var back := ("door_blank_%dm" if side > 0 else "door_socket_%dm") % d.id
+	var paint: String = PAINT.get(d.id, "#786048")
 	mb.quad(front, o + Vector3(0, 0, LEAF_T * 0.5), X, Y, Vector3(0, 0, 1), Vector2(0, 1), Vector2(1, 0), Vector2(0, -1), 0.5)
 	mb.quad(back, o - Vector3(0, 0, LEAF_T * 0.5), X, Y, Vector3(0, 0, -1), Vector2(0, 1), Vector2(1, 0), Vector2(0, -1), 0.5)
 	var Zt := Vector3(0, 0, LEAF_T)
 	mb.quad("wood_mid", o + X - Zt * 0.5, Zt, Y, Vector3(1, 0, 0), Vector2.ZERO, Vector2(0.1, 0), Vector2(0, 1), 0.5)
 	mb.quad("wood_mid", o - Zt * 0.5, Zt, Y, Vector3(-1, 0, 0), Vector2.ZERO, Vector2(0.1, 0), Vector2(0, 1), 0.5)
-	mb.quad("wood_mid", o + Y - Zt * 0.5, X, Zt, Vector3(0, 1, 0), Vector2.ZERO, Vector2(1, 0), Vector2(0, 0.1), 0.5)
+	mb.quad(paint, o + Y - Zt * 0.5, X, Zt, Vector3(0, 1, 0), Vector2.ZERO, Vector2(1, 0), Vector2(0, 0.1), 0.5)
 	# brass strap hinges hugging the post
 	for y: float in [0.35, 1.75]:
 		mb.box("brass", Vector3(LEAF_A + 0.16, y, 0), Vector3(0.36, 0.06, LEAF_T + 0.02), 3.0)
@@ -110,6 +114,39 @@ func setup(i: int, d: LevelLogic.DoorDef, building: Building) -> void:
 	knob.add_child(make_knob(B))
 	knob.visible = false
 	pivot.add_child(knob)
+
+## decades of a heavy leaf dragging over the floor: arcs wherever this door is able to swing
+func _build_scrapes() -> void:
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var any := false
+	for a: int in def.slots:
+		var b := (a + 1) & 3
+		if not (b in def.slots):
+			continue
+		any = true
+		for band: Array in [[1.57, 1.63], [1.02, 1.045], [1.33, 1.345]]:
+			var seg := 12
+			for i in seg:
+				var t0 := (a + float(i) / seg) * PI * 0.5
+				var t1 := (a + float(i + 1) / seg) * PI * 0.5
+				var p := [Vector3(cos(t0) * band[0], 0.014, -sin(t0) * band[0]), Vector3(cos(t0) * band[1], 0.014, -sin(t0) * band[1]),
+					Vector3(cos(t1) * band[1], 0.014, -sin(t1) * band[1]), Vector3(cos(t1) * band[0], 0.014, -sin(t1) * band[0])]
+				for k: int in [0, 1, 2, 0, 2, 3]:
+					st.set_normal(Vector3.UP)
+					st.add_vertex(p[k])
+	if not any:
+		return
+	var mi := MeshInstance3D.new()
+	mi.mesh = st.commit()
+	var m := StandardMaterial3D.new()
+	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	m.cull_mode = BaseMaterial3D.CULL_DISABLED
+	m.albedo_color = Color(0.03, 0.025, 0.02, 0.42)
+	mi.material_override = m
+	add_child(mi)
+
 
 ## a brass knob pointing along +z, base at the origin
 static func make_knob(building: Building) -> Node3D:
@@ -189,9 +226,11 @@ func rider_yaw(socket_side := true) -> float:
 func closedness(dir: int) -> float:
 	if turning:
 		if dir == anim_from:
-			return clampf(1.0 - anim_t * 2.5, 0.0, 1.0)
+			# the seal breaks almost at once: a finger-wide gap already lets the bell through
+			return clampf(1.0 - anim_t * 4.5, 0.0, 1.0)
 		if dir == anim_to:
-			return clampf((anim_t - 0.75) * 4.0, 0.0, 1.0)
+			# and it only comes back when the leaf meets the frame
+			return clampf((anim_t - 0.84) * 6.25, 0.0, 1.0)
 		return 0.0
 	return 1.0 if dir == def.pos else 0.0
 

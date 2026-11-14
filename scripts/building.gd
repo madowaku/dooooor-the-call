@@ -18,7 +18,7 @@ const ROOMS := {
 	"w": {"wall": "wall_green", "floor": "floor_lino", "ceil": "ceil_panel", "step": "concrete"},
 	"n": {"wall": "wall_north", "floor": "floor_wood", "ceil": "ceil_wood", "step": "wood"},
 	"e": {"wall": "wall_north", "floor": "floor_wood", "ceil": "ceil_wood", "step": "wood"},
-	"c": {"wall": "wall_green", "floor": "floor_tile", "ceil": "ceil_panel", "step": "concrete"},
+	"c": {"wall": "wall_east", "floor": "floor_tile", "ceil": "ceil_panel", "step": "concrete"},
 	"l": {"wall": "wall_lobby", "floor": "floor_carpet", "ceil": "ceil_panel", "step": "carpet"},
 	"x": {"wall": "wall_concrete", "floor": "floor_concrete", "ceil": "ceil_wood", "step": "concrete"},
 	"r": {"wall": "wall_tile", "floor": "floor_tile", "ceil": "ceil_panel", "step": "concrete"},
@@ -40,8 +40,8 @@ const LIGHTS := [
 	[6.0, 1.5, "n", "bulb", BULB, 1.5, 5.5],
 	[10.3, 1.5, "n", "bulb", BULB, 1.5, 5.5],
 	[13.5, 1.5, "e", "bulb", BULB, 1.6, 5.0],
-	[13.5, 4.9, "c", "tube", FLUO, 1.3, 5.5],
-	[13.5, 10.2, "c", "tube", FLUO, 1.3, 5.5],
+	[13.5, 4.9, "c", "tube", COLD, 1.4, 5.5],
+	[13.5, 10.2, "c", "tube", COLD, 1.4, 5.5],
 	[5.6, 10.5, "l", "bulb", BULB, 1.7, 6.5],
 	[9.8, 10.6, "l", "bulb", BULB, 1.7, 6.5],
 	[9.0, 13.6, "l", "bulb", BULB, 1.5, 6.0],
@@ -365,7 +365,7 @@ func _build_lights() -> void:
 				tube.mesh = bm
 				var tm := StandardMaterial3D.new()
 				tm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-				tm.albedo_color = Color(0.92, 1.0, 0.94)
+				tm.albedo_color = Color(0.92, 1.0, 0.94) if d[4] != COLD else Color(0.9, 0.95, 1.0)
 				tube.material_override = tm
 				tube.position = pos + Vector3(0, WALL_H - 0.1, 0)
 				add_child(tube)
@@ -420,6 +420,28 @@ func _sign(mb: MB, tex: String, center: Vector3, along: Vector3, n_in: Vector3, 
 	mb.quad("@" + tex, center - along * w * 0.5 - Vector3(0, h * 0.5, 0) + n_in * 0.02, along * w, Vector3(0, h, 0), n_in, Vector2(0, 1), Vector2(1, 0), Vector2(0, -1), 9.0)
 
 
+func _glow(pos: Vector3, room: String, c: Color, energy: float, rng: float) -> void:
+	var l := OmniLight3D.new()
+	l.light_color = c
+	l.light_energy = energy
+	l.omni_range = rng
+	l.omni_attenuation = 1.3
+	l.light_specular = 0.0
+	l.position = pos
+	l.light_cull_mask = room_bit[room] | (1 << 19)
+	add_child(l)
+
+func _picture(mb: MB, center: Vector3, along: Vector3, n_in: Vector3, w: float, h: float, inner: String) -> void:
+	var o := center - along * w * 0.5 - Vector3(0, h * 0.5, 0)
+	mb.quad("wood_dark", o + n_in * 0.015, along * w, Vector3(0, h, 0), n_in)
+	var m := 0.05
+	mb.quad(inner, o + along * m + Vector3(0, m, 0) + n_in * 0.025, along * (w - m * 2), Vector3(0, h - m * 2, 0), n_in, Vector2(0, 1), Vector2(1, 0), Vector2(0, -1), 9.0)
+
+func _stain(mb: MB, center: Vector3, size: float, up: bool) -> void:
+	var o := center - Vector3(size * 0.5, 0, size * 0.5)
+	mb.quad("@stain", o, Vector3(size, 0, 0), Vector3(0, 0, size), Vector3.UP if up else Vector3.DOWN, Vector2.ZERO, Vector2(1, 0), Vector2(0, 1), 9.0)
+
+
 func _build_props() -> void:
 	var X := Vector3(1, 0, 0)
 	var Z := Vector3(0, 0, 1)
@@ -428,7 +450,14 @@ func _build_props() -> void:
 	mb.box("#a02820", Vector3(0.24, 0.42, 13.6), Vector3(0.16, 0.5, 0.16))
 	mb.box("#181818", Vector3(0.24, 0.72, 13.6), Vector3(0.06, 0.1, 0.06))
 	_window(mb, Vector3(0, 1.55, 15.0), Z, X)
+	# the green exit lamp: wherever you see it, you are back where you started
+	mb.box("#143a26", Vector3(1.5, 2.44, 14.2), Vector3(0.74, 0.3, 0.07))
+	mb.box("#141210", Vector3(1.24, 2.68, 14.2), Vector3(0.02, 0.24, 0.02))
+	mb.box("#141210", Vector3(1.76, 2.68, 14.2), Vector3(0.02, 0.24, 0.02))
+	_sign(mb, "sign_exit", Vector3(1.5, 2.44, 14.24), X, Z, 0.68, 0.25)
+	_sign(mb, "sign_exit", Vector3(1.5, 2.44, 14.16), -X, -Z, 0.68, 0.25)
 	_prop_mesh(mb, "s")
+	_glow(Vector3(1.5, 2.2, 14.6), "s", Color(0.35, 1.0, 0.6), 0.55, 3.4)
 	# ---- west corridor: windows, umbrella stand
 	mb = MB.new()
 	_window(mb, Vector3(0, 1.55, 10.5), Z, X)
@@ -437,6 +466,18 @@ func _build_props() -> void:
 	mb.box("iron", Vector3(2.62, 0.3, 8.2), Vector3(0.3, 0.6, 0.5), 2.0)
 	mb.box("#20242c", Vector3(2.62, 0.75, 8.1), Vector3(0.04, 0.9, 0.04))
 	_sign(mb, "sign_wash", Vector3(3.0 - TH, 2.3, 3.9), Z, -X)
+	# the leak: a brown bloom on the ceiling, a dark pool, a bucket that nobody empties
+	_stain(mb, Vector3(1.0, WALL_H - 0.012, 6.5), 1.9, false)
+	_stain(mb, Vector3(1.0, 0.012, 6.5), 1.7, true)
+	mb.box("#5a7a8c", Vector3(0.62, 0.15, 6.45), Vector3(0.28, 0.3, 0.28))
+	mb.box("#0c1014!", Vector3(0.62, 0.302, 6.45), Vector3(0.22, 0.004, 0.22))
+	# shoe shelf between the windows
+	mb.box("wood_mid", Vector3(0.25, 0.5, 9.0), Vector3(0.26, 1.0, 1.34), 1.0)
+	for sy in 3:
+		for sz in 4:
+			mb.quad("#120e0a!", Vector3(0.385, 0.1 + sy * 0.3, 8.4 + sz * 0.31), Z * 0.26, Vector3(0, 0.22, 0), X)
+	mb.box("#d8d0b8", Vector3(0.36, 0.14, 8.86), Vector3(0.1, 0.07, 0.22))
+	_picture(mb, Vector3(3.0 - TH, 1.5, 7.6), Z, -X, 0.5, 0.74, "poster")
 	_prop_mesh(mb, "w")
 	# ---- north corridor: windows facing north, a broom
 	mb = MB.new()
@@ -444,16 +485,31 @@ func _build_props() -> void:
 		_window(mb, Vector3(wx, 1.55, 0), X, Z)
 	mb.box("wood_mid", Vector3(7.9, 0.75, 2.78), Vector3(0.035, 1.5, 0.035))
 	mb.box("#8a7448", Vector3(7.9, 0.1, 2.76), Vector3(0.3, 0.2, 0.06))
+	# fire alarm: a white panel and a red lamp that is always on
+	mb.box("#d4cfc0", Vector3(5.6, 1.35, 3.0 - TH - 0.04), Vector3(0.42, 0.56, 0.08))
+	mb.box("#b02a22", Vector3(5.6, 1.4, 3.0 - TH - 0.09), Vector3(0.16, 0.16, 0.04))
+	mb.box("#ff4a30!", Vector3(5.6, 2.02, 3.0 - TH - 0.07), Vector3(0.13, 0.13, 0.13))
+	_picture(mb, Vector3(9.2, 1.55, 3.0 - TH), -X, -Z, 0.42, 0.62, "calendar")
 	_prop_mesh(mb, "n")
+	_glow(Vector3(5.6, 1.9, 2.5), "n", Color(1.0, 0.25, 0.15), 0.9, 3.6)
 	mb = MB.new()
 	_window(mb, Vector3(13.5, 1.55, 0), X, Z)
 	_window(mb, Vector3(15.0, 1.55, 1.5), Z, -X)
+	# bottle crates stacked in the corner
+	mb.box("#2c4c8c", Vector3(14.58, 0.15, 2.6), Vector3(0.5, 0.3, 0.36))
+	mb.box("#2c4c8c", Vector3(14.6, 0.45, 2.62), Vector3(0.5, 0.3, 0.36))
+	mb.box("#c8a030", Vector3(14.57, 0.75, 2.6), Vector3(0.5, 0.3, 0.36))
+	mb.box("#2c4c8c", Vector3(14.0, 0.15, 2.66), Vector3(0.5, 0.3, 0.36))
 	_prop_mesh(mb, "e")
 	# ---- east corridor: hose box, windows
 	mb = MB.new()
 	_window(mb, Vector3(15.0, 1.55, 7.5), Z, -X)
 	_window(mb, Vector3(15.0, 1.55, 10.5), Z, -X)
 	mb.box("#9a2a22", Vector3(14.78, 1.1, 4.6), Vector3(0.22, 0.7, 0.5))
+	# three small framed pictures in a row on the inner wall
+	_picture(mb, Vector3(12.0 + TH, 1.6, 6.7), -Z, X, 0.5, 0.4, "#7a8a5a")
+	_picture(mb, Vector3(12.0 + TH, 1.6, 7.5), -Z, X, 0.5, 0.4, "#9a6a48")
+	_picture(mb, Vector3(12.0 + TH, 1.6, 8.3), -Z, X, 0.5, 0.4, "#4a5e80")
 	_prop_mesh(mb, "c")
 	# ---- lobby: bench, vending machine, notice board, clock, plant
 	mb = MB.new()

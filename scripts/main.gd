@@ -22,6 +22,14 @@ const CAMS := {
 	"p": [Vector3(3.5, 2.45, 8.55), Vector3(7.2, 0.7, 5.3), 0.3, 62.0],
 }
 
+## how each room answers: [reverb size, damping, extra wet on the bell, wet on footsteps and doors]
+const ROOM_AC := {
+	"s": [0.78, 0.35, 0.0, 0.2], "w": [0.8, 0.3, 0.02, 0.22], "c": [0.8, 0.22, 0.03, 0.26],
+	"n": [0.7, 0.5, 0.0, 0.14], "e": [0.6, 0.5, 0.0, 0.14],
+	"l": [0.6, 0.78, -0.03, 0.07], "x": [0.35, 0.3, 0.05, 0.24],
+	"r": [0.55, 0.06, 0.12, 0.44], "k": [0.45, 0.5, 0.0, 0.12], "p": [0.4, 0.86, -0.04, 0.05],
+}
+
 var L: LevelLogic
 var vp: SubViewport
 var screen: TextureRect
@@ -59,6 +67,11 @@ var aid_on := false
 
 var bell: AudioStreamPlayer3D
 var bell_tail: AudioStreamPlayer
+var bell_wall: AudioStreamPlayer3D
+var wall_db := -60.0
+var srv: AudioEffectReverb
+var amb_duck := 1.0
+var idle_t := 0.0
 var amb: AudioStreamPlayer
 var loops: Array = []
 var bell_db := -30.0
@@ -137,7 +150,7 @@ func _setup_input() -> void:
 			InputMap.action_add_event(a, jm)
 
 func _setup_audio() -> void:
-	for nm: String in ["Bell", "Sfx", "Amb"]:
+	for nm: String in ["Bell", "Wall", "Sfx", "Amb"]:
 		AudioServer.add_bus()
 		var i := AudioServer.bus_count - 1
 		AudioServer.set_bus_name(i, nm)
@@ -155,15 +168,15 @@ func _setup_audio() -> void:
 	var bi := AudioServer.get_bus_index("Bell")
 	AudioServer.add_bus_effect(bi, lp)
 	AudioServer.add_bus_effect(bi, rv)
-	var srv := AudioEffectReverb.new()
+	srv = AudioEffectReverb.new()
 	srv.room_size = 0.5
 	srv.damping = 0.5
 	srv.dry = 1.0
 	srv.wet = 0.16
 	AudioServer.add_bus_effect(AudioServer.get_bus_index("Sfx"), srv)
-	for f: String in ["bell_ring", "bell_tail", "rattle", "knob_insert", "knob_remove", "knob_turn", "thud", "door_move", "door_seat", "receiver_lift", "room_tone", "fluoro_buzz", "clock_tick", "vending_hum", "ui_start", "knob_ting"]:
+	for f: String in ["bell_ring", "bell_tail", "rattle", "knob_insert", "knob_remove", "knob_turn", "thud", "door_move", "door_seat", "receiver_lift", "room_tone", "fluoro_buzz", "clock_tick", "vending_hum", "ui_start", "knob_ting", "bell_wall"]:
 		streams[f] = load("res://assets/audio/%s.wav" % f)
-	for f: String in ["bell_ring", "room_tone", "fluoro_buzz", "clock_tick", "vending_hum"]:
+	for f: String in ["bell_ring", "bell_wall", "room_tone", "fluoro_buzz", "clock_tick", "vending_hum"]:
 		var w: AudioStreamWAV = streams[f]
 		w.loop_mode = AudioStreamWAV.LOOP_FORWARD
 		w.loop_begin = 0
@@ -294,7 +307,17 @@ func _setup_sound_sources() -> void:
 	bell.panning_strength = 1.4
 	bell.max_polyphony = 1
 	world.add_child(bell)
+	# the second voice of the same bell: what comes straight through the walls. it always points at
+	# the real telephone, however the doors stand, and it never gets clear.
+	bell_wall = AudioStreamPlayer3D.new()
+	bell_wall.stream = streams["bell_wall"]
+	bell_wall.bus = "Wall"
+	bell_wall.attenuation_model = AudioStreamPlayer3D.ATTENUATION_DISABLED
+	bell_wall.panning_strength = 1.2
+	bell_wall.volume_db = -60.0
+	world.add_child(bell_wall)
 	bell.play()
+	bell_wall.play()
 	bell_tail = AudioStreamPlayer.new()
 	bell_tail.stream = streams["bell_tail"]
 	bell_tail.bus = "Bell"
@@ -406,7 +429,7 @@ func _on_act() -> void:
 				_start_game()
 		St.END:
 			AudioServer.set_bus_mute(0, false)
-			for nm: String in ["Bell", "Sfx", "Amb"]:
+			for nm: String in ["Bell", "Wall", "Sfx", "Amb"]:
 				AudioServer.remove_bus(AudioServer.get_bus_index(nm))
 			get_tree().reload_current_scene()
 		St.DOOR:
@@ -565,19 +588,24 @@ func _door_choose(opt: Dictionary) -> void:
 	sfx("door_move", -1.0, randf_range(0.94, 1.04))
 	sfx("pm_squeak", -15.0, randf_range(0.8, 1.0))
 	sfx("creak%d" % randi_range(1, 3), -12.0, 0.7)
+	var strain := "push" if L.is_push(d.index, opt.turn) else "pull"
 	d.turn(opt.pos, opt.turn, 2.35)
 	while d.turning:
 		player.global_position = d.rider_world(true)
 		player.rotation.y = d.rider_yaw(true)
-		human.pose = "hold"
+		human.pose = strain
 		field.update()
 		await get_tree().process_frame
 	player.global_position = d.rider_world(true)
+	human.pose = "hold"
 	sfx("door_seat", 0.0)
 	cam_shake = 0.05
 	field.update()
 	_update_layers()
-	await wait(0.45)
+	# one held breath after the leaf lands: the building goes quiet and only the changed bell is left
+	amb_duck = 0.3
+	create_tween().tween_property(self, "amb_duck", 1.0, 2.6).set_delay(0.5)
+	await wait(0.85)
 	_refresh_arrows()
 	dir_released = false
 	state = St.DOOR
@@ -678,6 +706,7 @@ func _ending() -> void:
 		bell_tail.volume_db = bell_db - 2.0
 		bell_tail.play()
 	bell.stop()
+	bell_wall.stop()
 	B.phone_handset.visible = false
 	human.show_handset(true)
 	human.pose = "phone"
@@ -738,6 +767,7 @@ func _physics_process(delta: float) -> void:
 	player.move_and_slide()
 	player.global_position.y = 0.0
 	var sp := player.get_real_velocity().length()
+	idle_t = 0.0 if dir.length() > 0.1 else idle_t + delta
 	if dir.length() > 0.1:
 		var yaw := atan2(-dir.x, -dir.z)
 		player.rotation.y = lerp_angle(player.rotation.y, yaw, minf(1.0, delta * 9.0))
@@ -842,6 +872,10 @@ func _scan_interactions() -> void:
 	hud.prompt_act = near_phone or not near_door.is_empty()
 	hud.prompt_back = not near_door.is_empty() and near_door.socket and L.knob_on == near_door.door.index
 	human.has_look = hud.prompt_act
+	if not hud.prompt_act and idle_t > 1.1 and not bell_stopped:
+		# standing still, the head drifts toward wherever the ringing is coming from
+		human.has_look = true
+		human.look_target = Vector3(bell_src.x, 1.5, bell_src.z)
 	if near_phone:
 		human.look_target = ph + Vector3(0, 0.7, 0)
 	elif not near_door.is_empty():
@@ -893,7 +927,9 @@ func _update_sound(delta: float) -> void:
 	var t_db := -30.0
 	var t_cut := 800.0
 	var t_wet := 0.45
+	var t_wall := -60.0
 	var from := Vector3.ZERO
+	var ac: Array = ROOM_AC.get(cam_room, ROOM_AC["s"])
 	if state == St.TITLE or (state == St.TRANSITION and hud.mode == "title"):
 		t_db = -25.0
 		t_cut = 1100.0
@@ -909,7 +945,11 @@ func _update_sound(delta: float) -> void:
 		var mf: float = q.muffle
 		t_db = clampf(-0.72 * cost, -42.0, 0.0) - 2.0
 		t_cut = clampf(15000.0 * pow(0.26, mf) / (1.0 + cost / 50.0), 380.0, 15000.0)
-		t_wet = clampf(0.06 + cost / 55.0 + mf * 0.1, 0.06, 0.6)
+		t_wet = clampf(0.06 + cost / 55.0 + mf * 0.1 + float(ac[2]), 0.04, 0.62)
+		var flat := Vector2(field.phone_pos.x - lpos.x, field.phone_pos.z - lpos.z).length()
+		# with a clear path the brass covers it; it only matters where the air route is shut or long
+		t_wall = clampf(-4.0 - 2.4 * flat, -60.0, -8.0) - maxf(0.0, 12.0 - cost)
+		bell_wall.global_position = listener.global_position + Vector3(field.phone_pos.x - lpos.x, 0, field.phone_pos.z - lpos.z).normalized() * 3.0 if flat > 0.3 else listener.global_position
 		from = q.from
 		var dv := Vector3(from.x - lpos.x, 0, from.z - lpos.z)
 		if dv.length() < 0.4:
@@ -930,7 +970,17 @@ func _update_sound(delta: float) -> void:
 		hud.aid_dir = Vector2(sx, sy).normalized() if not bell_stopped else Vector2.ZERO
 		if bell_stopped:
 			hud.aid_level = 0.0
-	var k := minf(1.0, delta * 3.5)
+	var busy := false
+	for d in doors:
+		busy = busy or d.turning
+	var k := minf(1.0, delta * (11.0 if busy else 3.5))
+	wall_db = lerpf(wall_db, t_wall if not bell_stopped else -60.0, minf(1.0, delta * 3.0))
+	bell_wall.volume_db = wall_db
+	rv.room_size = lerpf(rv.room_size, ac[0], minf(1.0, delta * 2.0))
+	rv.damping = lerpf(rv.damping, ac[1], minf(1.0, delta * 2.0))
+	srv.wet = lerpf(srv.wet, ac[3], minf(1.0, delta * 2.0))
+	srv.room_size = lerpf(srv.room_size, ac[0] * 0.8, minf(1.0, delta * 2.0))
+	srv.damping = lerpf(srv.damping, ac[1], minf(1.0, delta * 2.0))
 	bell_db = lerpf(bell_db, t_db, k)
 	bell_cut = lerpf(bell_cut, t_cut, k)
 	bell_wet = lerpf(bell_wet, t_wet, k)
@@ -938,9 +988,10 @@ func _update_sound(delta: float) -> void:
 	bell.global_position = bell_src
 	lp.cutoff_hz = bell_cut
 	rv.wet = bell_wet
-	amb.volume_db = -22.0 + linear_to_db(maxf(amb_gain, 0.0001))
+	var ag := linear_to_db(maxf(amb_gain * amb_duck, 0.0001))
+	amb.volume_db = -22.0 + ag
 	for p: AudioStreamPlayer3D in loops:
-		p.volume_db = float(p.get_meta("base")) + linear_to_db(maxf(amb_gain, 0.0001))
+		p.volume_db = float(p.get_meta("base")) + ag
 
 func _on_footstep() -> void:
 	if state == St.TITLE:
@@ -954,7 +1005,7 @@ func _shot(nm: String) -> void:
 	DirAccess.make_dir_recursive_absolute(shot_dir)
 	var img := get_viewport().get_texture().get_image()
 	img.save_png("%s/%s.png" % [shot_dir, nm])
-	print("shot %-22s bell %6.1f dB  lowpass %5.0f Hz  reverb %.2f  cell %s" % [nm, bell_db, bell_cut, bell_wet, Building.world_to_cell(player.global_position)])
+	print("shot %-22s bell %6.1f dB  lowpass %5.0f Hz  reverb %.2f  wall %6.1f dB  cell %s" % [nm, bell_db, bell_cut, bell_wet, wall_db, Building.world_to_cell(player.global_position)])
 
 func _bot_until(cond: Callable, limit := 40.0) -> bool:
 	var t := 0.0

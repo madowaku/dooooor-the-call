@@ -257,4 +257,14 @@ save("ui_start", y, 0.6)
 # a small ring of brass: the knob catching the light
 n = int(0.9 * SR)
 save("knob_ting", modes(n, [2620, 6040, 9100], [1, 0.4, 0.15], [0.22, 0.12, 0.06]), 0.35)
+# the same ring as it arrives through a wall: no brass left, only the clapper drumming on the
+# bakelite body and the table. same length and timing as bell_ring so the two loops stay locked.
+env = fft_filter(np.abs(ring), hi=70, slope=2)
+env = np.clip(env, 0, None)
+nn = len(ring)
+tt = t(nn)
+body = 0.8 * np.sin(2 * np.pi * 205 * tt) + 0.5 * np.sin(2 * np.pi * 131 * tt + 0.7) + 0.35 * np.sin(2 * np.pi * 322 * tt + 1.9)
+body += 1.2 * fft_filter(noise(nn), lo=90, hi=380, slope=3)
+wallb = fft_filter(env * body, lo=70, hi=430, slope=3)
+save("bell_wall", wallb, 0.7)
 print("done")

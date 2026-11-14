@@ -452,6 +452,74 @@ def logo():
     Image.fromarray((ghost * 255).astype(np.uint8), "RGBA").save(os.path.join(OUT, "knob_icon_off.png"))
 
 
+def landmarks():
+    """things that let a player say "I have been here": painted doors with number plates, an exit lamp, stains."""
+    paints = {1: (96, 128, 104), 2: (150, 74, 58), 3: (190, 150, 70), 4: (92, 112, 140)}
+    r = np.random.default_rng(404)
+    for kind in ("door_socket", "door_blank"):
+        src = np.asarray(Image.open(os.path.join(OUT, kind + ".png")).convert("RGB"), np.float32) / 255.0
+        H, W = src.shape[:2]
+        yy, xx = np.mgrid[0:H, 0:W]
+        lum = src.mean(axis=2)
+        lum = lum / lum.mean()
+        for i, pc in paints.items():
+            rr = np.random.default_rng(500 + i)
+            paint = np.ones((H, W, 3), np.float32) * col(pc) * (0.55 + 0.45 * lum)[..., None]
+            chip = noise(H, W, 6, seed=600 + i) * 0.7 + noise(H, W, 2, seed=700 + i) * 0.3
+            worn = chip + 0.35 * np.clip((yy - 96) / 32.0, 0, 1) + 0.25 * np.clip((6 - np.minimum(xx, W - 1 - xx)) / 6.0, 0, 1)
+            keep = worn > 0.72
+            img = np.where(keep[..., None], src * 0.9, paint)
+            if kind == "door_socket":
+                plate = (np.abs(xx - 52) < 9) & (np.abs(yy - 68) < 16)
+                img = np.where(plate[..., None], src, img)
+            # enamel number plate in the upper panel
+            num = text_img(str(i), 16, (24, 24, 30, 255), (0, 0, 0, 0), pad=0)
+            px0, py0, pw, ph = 23, 14, 18, 22
+            img[py0:py0 + ph, px0:px0 + pw] = col((222, 216, 196)) * (0.9 + 0.12 * rr.random((ph, pw)).astype(np.float32))[..., None]
+            img[py0, px0:px0 + pw] *= 0.5; img[py0 + ph - 1, px0:px0 + pw] *= 0.5
+            img[py0:py0 + ph, px0] *= 0.5; img[py0:py0 + ph, px0 + pw - 1] *= 0.5
+            na = np.asarray(num, np.float32) / 255.0
+            nh, nw = na.shape[:2]
+            oy, ox = py0 + (ph - nh) // 2, px0 + (pw - nw) // 2
+            # "m": the face of the leaf whose texture is seen mirrored in the game gets a pre-mirrored digit
+            for suffix, digit in (("", na), ("m", na[:, ::-1])):
+                out = img.copy()
+                a = digit[..., 3:4]
+                out[oy:oy + nh, ox:ox + nw] = out[oy:oy + nh, ox:ox + nw] * (1 - a) + digit[..., :3] * a
+                save("%s_%d%s" % (kind, i, suffix), out)
+    # emergency exit lamp
+    im = text_img("非常口", 16, (236, 248, 236, 255), (26, 120, 70, 255), pad=5)
+    im.save(os.path.join(OUT, "sign_exit.png"))
+    # east corridor wall: cold blue-grey plaster over navy boards, so it is never mistaken for the west one
+    wall("wall_east", (150, 164, 176), pat_plain, (54, 66, 92), (40, 48, 66), (30, 34, 44), wains_planks=True, stain=0.3)
+    # soft dark floor / ceiling stain with alpha
+    H = W = 64
+    yy, xx = np.mgrid[0:H, 0:W]
+    rad = np.hypot(xx - 31.5, yy - 31.5) / 31.5
+    blob = np.clip(1.15 - rad - 0.5 * noise(H, W, 10, seed=41), 0, 1)
+    rgba = np.zeros((H, W, 4), np.float32)
+    rgba[..., :3] = (0.05, 0.045, 0.035)
+    rgba[..., 3] = np.clip(blob * 1.6, 0, 1) * 0.62
+    ring_ = np.clip(1 - np.abs(blob - 0.12) * 14, 0, 1) * 0.25
+    rgba[..., 3] = np.clip(rgba[..., 3] + ring_, 0, 0.8)
+    Image.fromarray((rgba * 255).astype(np.uint8), "RGBA").save(os.path.join(OUT, "stain.png"))
+    # a faded safety poster and a calendar
+    img = np.ones((48, 32, 3), np.float32) * col((212, 200, 160))
+    img[4:22, 4:28] = col((176, 64, 52))
+    img[8:18, 12:20] = col((232, 220, 180))
+    for ly in range(27, 44, 4):
+        img[ly:ly + 2, 5:27 - int(r.integers(0, 8))] *= 0.5
+    img *= (0.85 + 0.2 * noise(48, 32, 4, seed=43))[..., None]
+    save("poster", img)
+    img = np.ones((48, 32, 3), np.float32) * col((226, 224, 210))
+    img[2:16, 2:30] = col((70, 110, 150))
+    for gy in range(5):
+        for gx in range(7):
+            img[20 + gy * 5:23 + gy * 5, 3 + gx * 4:6 + gx * 4] *= 0.6 if (gx + gy) % 7 else 0.3
+    img *= (0.9 + 0.12 * noise(48, 32, 4, seed=44))[..., None]
+    save("calendar", img)
+
+
 if __name__ == "__main__":
     wall("wall_start", (176, 160, 112), pat_stripes, (88, 62, 40), (64, 44, 30), (40, 30, 24), stain=0.35)
     wall("wall_green", (190, 186, 158), pat_plain, (86, 122, 104), (60, 84, 72), (44, 50, 46), wains_planks=False, stain=0.3)
@@ -468,3 +536,4 @@ if __name__ == "__main__":
     exterior()
     logo()
     print("textures ->", OUT, len(os.listdir(OUT)))
+    landmarks()
