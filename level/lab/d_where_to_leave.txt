@@ -1,0 +1,17 @@
+# three doors. the knob changes doors five times; where each leaf is left decides the rest.
+map
++-+-+-+-+
+|l|lDl l|
++ +D1-+ +
+|l|lDl|l|
++D2D+ + +
+|lDlDl|l|
++-+-3D+ +
+|l|l|l l|
++-+-+-+-+
+end
+door 1 type=ccw start=N slots=NWS
+door 2 type=ccw start=S slots=EWS
+door 3 type=cw start=E slots=EN
+phone 0 1
+start 2 3

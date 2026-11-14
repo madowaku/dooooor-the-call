@@ -1,0 +1,13 @@
+# one three-way door. the only way in is to be carried round the post twice.
+map
++-+-+-+
+|l l|l|
++ +-+-+
+|l|l l|
++D1D+ +
+|lDl l|
++-+-+-+
+end
+door 1 type=ccw start=W slots=EWS
+phone 0 1
+start 1 1

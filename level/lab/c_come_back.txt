@@ -1,0 +1,14 @@
+# two doors. ride one round, leave it, use the other, come back and turn the first one again.
+map
++-+-+-+-+
+|l l|l l|
++-+D2D+-+
+|l|lDl|l|
++D1D+ + +
+|lDl l|l|
++-+-+-+-+
+end
+door 1 type=ccw start=E slots=EWS
+door 2 type=ccw start=E slots=EWS
+phone 0 0
+start 2 0

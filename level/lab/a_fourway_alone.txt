@@ -1,0 +1,11 @@
+# a four-way door alone: four rooms around one post, start on one side, telephone on the other.
+map
++-+-+-+-+
+|. lDl l|
++-+D1D+-+
+|l lDl .|
++-+-+-+-+
+end
+door 1 type=ccw start=W
+phone 3 0
+start 0 1
