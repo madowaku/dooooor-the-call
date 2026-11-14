@@ -49,6 +49,21 @@ THE LOST PS2 JAM 向けの短編（空間パズル＋静かな探索）。Godot 
 | `tools/shot_human.gd` `test_human.gd` | 人物だけを撮影・点検する |
 | `docs/` | 提出用の資料 |
 
+## DOOOOOR LAB（開発用のテスト盤面）
+
+パズルの案を、建物を作る前に手で試すための簡素なモード。タイトル画面で L キー、または起動引数 `--lab`。
+
+- 盤面は `level/lab/*.txt`。壁と扉と電球だけの部屋を、南側の上から建物全体が見える固定カメラで映す。
+- 遊んでいる間は R でやり直し、L で一覧へ。電話に出ると回転数と時間を記録し、最短解の回転数はクリア後にだけ表示する。
+- 記録は `build/lab_log.txt`（書き出し版は exe と同じフォルダ）に、回した扉の順番つきで追記される。
+
+```
+godot --headless --path . -s tools/lab.gd                       # 盤面の計測（必須の扉、押す/引く/抜き直しを禁じたときの可否）
+godot --headless --path . -s tools/lab.gd -- --gen=40000 --size=4x3 --doors=2   # 小さな盤面を自動生成して候補を出す
+godot --headless --path . -s tools/lab_sound.gd -- --level=res://level/building.txt --door=3   # 扉1枚が音をどれだけ変えるか
+godot --path . -- --lab=c_come_back --labbot                    # 最短解を実機で通す
+```
+
 ## 検証コマンド
 
 Godot は `C:\Dev\Tools\Godot-4.7-stable\Godot_v4.7-stable_win64_console.exe` を使用。

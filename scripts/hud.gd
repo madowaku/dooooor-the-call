@@ -39,6 +39,12 @@ var echo_pos: Vector2 = Vector2.ZERO
 const AMBER := Color(1.0, 0.72, 0.3)
 const DULL := Color(0.5, 0.42, 0.34)
 const WALLC := Color(0.5, 0.17, 0.08)
+var lab_rows: Array = []          # DOOOOOR LAB list: [name, result]
+var lab_sel: int = 0
+var lab_title: String = ""
+var lab_text: String = ""         # top line while playing a test board
+var lab_done: String = ""
+var lab_done2: String = ""
 var _ring: float = 0.0           # follows the bell: instant attack, short decay
 var _ring_slow: float = 0.0      # the same, heard through a door: swollen and late
 var _echo: float = 0.0
@@ -82,6 +88,10 @@ func _draw() -> void:
 			_draw_title()
 		"play":
 			_draw_play()
+			if lab_text != "":
+				_draw_lab_play()
+		"lab":
+			_draw_lab()
 	if fade > 0.0:
 		draw_rect(Rect2(0.0, 0.0, W, H), Color(0.0, 0.0, 0.0, clampf(fade, 0.0, 1.0)))
 	if aid_on and _echo > 0.01 and mode != "end":
@@ -331,6 +341,41 @@ func _phone_shape(c: Vector2, col: Color) -> void:
 	draw_rect(Rect2(c + Vector2(-9, -9), Vector2(18, 3)), col)
 	draw_rect(Rect2(c + Vector2(-11, -9), Vector2(5, 5)), col)
 	draw_rect(Rect2(c + Vector2(6, -9), Vector2(5, 5)), col)
+
+
+# ---------------------------------------------------------------- DOOOOOR LAB (developer test boards)
+
+func _text_l(text: String, x: float, cy: float, col: Color) -> void:
+	if _font == null:
+		return
+	var base: float = cy + (_font.get_ascent(16) - _font.get_descent(16)) * 0.5
+	draw_string(_font, Vector2(roundf(x), roundf(base)), text, HORIZONTAL_ALIGNMENT_LEFT, -1, 16, col)
+
+
+func _draw_lab() -> void:
+	draw_rect(Rect2(0.0, 0.0, W, H), Color(0.0, 0.0, 0.0, 0.8))
+	_text_c("DOOOOOR LAB", 256.0, 52.0, BRASS)
+	_text_c("開発用のテスト盤面", 256.0, 76.0, DIM)
+	for i in lab_rows.size():
+		var y: float = 132.0 + 52.0 * float(i)
+		var on: bool = i == lab_sel
+		if on:
+			draw_rect(Rect2(40.0, y - 14.0, 432.0, 44.0), Color(0.77, 0.61, 0.26, 0.16))
+			draw_rect(Rect2(40.0, y - 14.0, 432.0, 44.0), _a(BRASS, 0.8), false, 1.0)
+		_text_l(str(lab_rows[i][0]), 56.0, y, PALE if on else DIM)
+		_text_l(str(lab_rows[i][1]), 56.0, y + 19.0, _a(DIM, 0.9))
+	_text_c(_key("十字 えらぶ   A はじめる   B もどる", "↑↓ えらぶ   Z はじめる   X もどる"), 256.0, 322.0, DIM)
+	_text_c("あそんでいる間   R やり直し   L 一覧へ", 256.0, 346.0, _a(DIM, 0.8))
+
+
+func _draw_lab_play() -> void:
+	draw_rect(Rect2(0.0, 0.0, W, 20.0), Color(0.0, 0.0, 0.0, 0.45))
+	_text_l(lab_text, 8.0, 10.0, _a(PALE, 0.85))
+	if lab_done != "":
+		draw_rect(Rect2(96.0, 150.0, 320.0, 76.0), Color(0.0, 0.0, 0.0, 0.72))
+		draw_rect(Rect2(96.0, 150.0, 320.0, 76.0), _a(BRASS, 0.8), false, 1.0)
+		_text_c(lab_done, 256.0, 174.0, PALE)
+		_text_c(lab_done2, 256.0, 200.0, DIM)
 
 
 # ---------------------------------------------------------------- end

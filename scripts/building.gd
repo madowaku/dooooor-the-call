@@ -56,6 +56,7 @@ const LIGHTS := [
 var L: LevelLogic
 var room_bit: Dictionary = {}
 var flicker_lights: Array = []
+var bare := false          # test boards: walls, doors, one bulb per cell, the telephone. nothing else.
 var phone_pos := Vector3.ZERO
 var phone_handset: Node3D
 var clock_pos := Vector3.ZERO
@@ -190,8 +191,11 @@ func build(logic: LevelLogic) -> void:
 	_build_cells()
 	_build_edges()
 	_build_posts()
-	_build_lights()
-	_build_props()
+	if bare:
+		_build_bare()
+	else:
+		_build_lights()
+		_build_props()
 
 
 func _build_cells() -> void:
@@ -386,6 +390,31 @@ func _build_lights() -> void:
 	mi.mesh = mb.build(self)
 	mi.layers = ALL_LAYERS
 	add_child(mi)
+
+
+func _build_bare() -> void:
+	var mb := MB.new()
+	for c: Vector2i in L.cells:
+		var pos := cell_center(c)
+		var l := OmniLight3D.new()
+		l.light_color = BULB
+		l.light_energy = 1.25
+		l.omni_range = 5.0
+		l.omni_attenuation = 1.1
+		l.light_specular = 0.2
+		l.position = pos + Vector3(0, WALL_H - 0.6, 0)
+		l.light_cull_mask = room_bit[L.cells[c]] | (1 << 19)
+		add_child(l)
+		mb.box("#fff0c8!", pos + Vector3(0, WALL_H - 0.32, 0), Vector3(0.09, 0.11, 0.09))
+	phone_pos = cell_center(L.phone_cell) + Vector3(0, 0, -0.9)
+	mb.box("wood_mid", phone_pos + Vector3(0, 0.3, 0), Vector3(0.62, 0.6, 0.44), 1.0)
+	mb.box("#e8e2d0", phone_pos + Vector3(0, 0.605, 0), Vector3(0.46, 0.012, 0.34))
+	_solid(phone_pos + Vector3(0, 0.4, 0), Vector3(0.62, 0.8, 0.44))
+	var mi := MeshInstance3D.new()
+	mi.mesh = mb.build(self)
+	mi.layers = ALL_LAYERS
+	add_child(mi)
+	_build_phone()
 
 
 func _prop_mesh(mb: MB, room: String) -> MeshInstance3D:
@@ -595,6 +624,7 @@ func _build_phone() -> void:
 	root.name = "phone"
 	root.position = phone_pos + Vector3(0, 0.612, 0)
 	add_child(root)
+	var phone_layers: int = room_bit[L.cells.get(L.phone_cell, "p")]
 	var black := StandardMaterial3D.new()
 	black.shading_mode = BaseMaterial3D.SHADING_MODE_PER_VERTEX
 	black.albedo_color = Color(0.035, 0.035, 0.04)
@@ -613,7 +643,7 @@ func _build_phone() -> void:
 		mi.mesh = bm
 		mi.material_override = black
 		mi.position = p[1]
-		mi.layers = room_bit["p"]
+		mi.layers = phone_layers
 		root.add_child(mi)
 	var dial := MeshInstance3D.new()
 	var qm := QuadMesh.new()
@@ -625,7 +655,7 @@ func _build_phone() -> void:
 	dial.material_override = dm
 	dial.position = Vector3(0, 0.098, 0.062)
 	dial.rotation.x = -1.05
-	dial.layers = room_bit["p"]
+	dial.layers = phone_layers
 	root.add_child(dial)
 	phone_handset = make_handset(black)
 	phone_handset.position = Vector3(0, 0.172, -0.03)

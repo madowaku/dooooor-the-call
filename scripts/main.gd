@@ -6,7 +6,26 @@ const VH := 384
 const SPEED := 2.5
 const EXT := Vector3(60, 0, 0)
 
-enum St { TITLE, TRANSITION, PLAY, BUSY, DOOR, ENDING, END }
+enum St { TITLE, TRANSITION, PLAY, BUSY, DOOR, ENDING, END, LABMENU, LABDONE }
+
+## DOOOOOR LAB: bare test boards for trying a puzzle idea by hand before any building is made for it.
+## [file in level/lab, name on the list]
+const LAB := [
+	["b_ride_twice", "01  運ばれる"],
+	["c_come_back", "02  戻って回す"],
+	["d_where_to_leave", "03  ノブを抜く"],
+]
+static var booted := false
+static var lab_menu := false
+static var lab_file := ""
+static var lab_sel := 0
+static var lab_results := {}
+var lab := false
+var lab_cfg: Array = []
+var lab_min := 0
+var lab_t := 0.0
+var lab_turns := 0
+var lab_log: Array[String] = []
 
 ## room -> [camera position, base look-at, tracking amount, fov]
 const CAMS := {
@@ -108,8 +127,18 @@ func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	_setup_input()
 	_setup_audio()
+	var args0 := OS.get_cmdline_user_args()
+	if not booted:
+		booted = true
+		for a: String in args0:
+			if a == "--lab":
+				lab_menu = true
+			elif a.begins_with("--lab="):
+				lab_menu = true
+				lab_file = a.substr(6)
+	lab = lab_file != ""
 	L = LevelLogic.new()
-	L.load_file("res://level/building.txt")
+	L.load_file(("res://level/lab/%s.txt" % lab_file) if lab else "res://level/building.txt")
 	_setup_view()
 	_setup_world()
 	_setup_sound_sources()
@@ -117,13 +146,23 @@ func _ready() -> void:
 	shot_dir = ProjectSettings.globalize_path("res://build/shots")
 	if OS.has_feature("template"):
 		shot_dir = OS.get_executable_path().get_base_dir().path_join("shots")
-	_enter_title()
+	if lab:
+		_enter_lab()
+	elif lab_menu:
+		_enter_lab_menu()
+	else:
+		_enter_title()
 	for a: String in args:
 		if a.begins_with("--aid="):
 			aid_mode = clampi(int(a.substr(6)), 0, 2)
 			aid_on = aid_mode > 0
 			hud.aid_strong = aid_mode == 2
-	if "--autoplay" in args:
+	if lab and "--labbot" in args:
+		bot = true
+		_bot_lab.call_deferred()
+	elif lab or lab_menu:
+		pass
+	elif "--autoplay" in args:
 		bot = true
 		_bot_autoplay.call_deferred()
 	elif "--monkey" in args:
@@ -257,6 +296,7 @@ func _setup_world() -> void:
 	world.add_child(we)
 	B = Building.new()
 	world.add_child(B)
+	B.bare = lab
 	B.build(L)
 	B.build_exterior(EXT)
 	for i in L.doors.size():
@@ -276,7 +316,7 @@ func _setup_world() -> void:
 	player.add_child(human)
 	human.footstep.connect(_on_footstep)
 	world.add_child(player)
-	player.position = Building.cell_center(L.start_cell) + Vector3(0, 0, -0.9)
+	player.position = Building.cell_center(L.start_cell) + (Vector3.ZERO if lab else Vector3(0, 0, -0.9))
 	title_human = Human.new()
 	world.add_child(title_human)
 	title_human.position = EXT + Vector3(0.9, 0, 3.0)
@@ -348,6 +388,8 @@ func _setup_sound_sources() -> void:
 	amb.volume_db = -22.0
 	add_child(amb)
 	amb.play()
+	if lab:
+		return
 	for src: Array in [["clock_tick", B.clock_pos, -9.0, 1.6, 11.0], ["vending_hum", B.vending_pos, -15.0, 1.2, 8.0], ["fluoro_buzz", Vector3(1.5, 2.6, 13.0), -17.0, 1.2, 7.0]]:
 		var p := AudioStreamPlayer3D.new()
 		p.stream = streams[src[0]]
@@ -360,6 +402,100 @@ func _setup_sound_sources() -> void:
 		world.add_child(p)
 		p.play()
 		loops.append(p)
+
+func _restart() -> void:
+	get_tree().paused = false
+	AudioServer.set_bus_mute(0, false)
+	for nm: String in ["Bell", "Wall", "Sfx", "Amb"]:
+		AudioServer.remove_bus(AudioServer.get_bus_index(nm))
+	get_tree().reload_current_scene()
+
+
+# ------------------------------------------------------------------ DOOOOOR LAB
+func _enter_lab_menu() -> void:
+	state = St.LABMENU
+	hud.mode = "lab"
+	hud.fade = 0.0
+	cam_override = true
+	_lab_rows()
+
+func _lab_rows() -> void:
+	var rows := []
+	for e: Array in LAB:
+		var r: Dictionary = lab_results.get(e[0], {})
+		var txt := "まだ"
+		if not r.is_empty():
+			txt = "%d回転  %s   最少 %d回転   （最短解は %d回転）  %d回目" % [r.turns, _clock(r.time), r.best, r.min, r.tries]
+		rows.append([e[1], txt])
+	hud.lab_rows = rows
+	hud.lab_sel = lab_sel
+
+func _clock(t: float) -> String:
+	return "%d:%02d" % [int(t) / 60, int(t) % 60]
+
+func _enter_lab() -> void:
+	state = St.PLAY
+	hud.mode = "play"
+	hud.fade = 1.0
+	create_tween().tween_property(hud, "fade", 0.0, 0.8)
+	intro_done = true
+	first_attach_done = true
+	phone_seen = true
+	hud.knob_known = true
+	title_human.visible = false
+	cam_override = false
+	env.fog_density = 0.005
+	# one camera for the whole board, high behind the south wall: a doll's house
+	var lo := Vector2(1e9, 1e9)
+	var hi := Vector2(-1e9, -1e9)
+	for c: Vector2i in L.cells:
+		lo = lo.min(Vector2(c))
+		hi = hi.max(Vector2(c) + Vector2.ONE)
+	lo *= Building.CELL
+	hi *= Building.CELL
+	var d := hi.y - lo.y
+	var m := maxf(hi.x - lo.x, d)
+	lab_cfg = [Vector3((lo.x + hi.x) * 0.5, 3.0 + 0.72 * m, hi.y + 1.2 + 0.22 * d), Vector3((lo.x + hi.x) * 0.5, 0.0, (lo.y + hi.y) * 0.5 - 0.3), 0.0, 50.0]
+	lab_min = Solver.search(L, L.start_cell).rot
+	for e: Array in LAB:
+		if e[0] == lab_file:
+			hud.lab_title = e[1]
+	if hud.lab_title == "":
+		hud.lab_title = lab_file
+	cam_room = ""
+	_update_room(true)
+
+func _lab_finish() -> void:
+	state = St.BUSY
+	hud.prompt_act = false
+	hud.prompt_back = false
+	human.pose = "reach"
+	await wait(0.5)
+	sfx("receiver_lift", 0.0)
+	bell_stopped = true
+	bell_tail.volume_db = bell_db - 2.0
+	bell_tail.play()
+	bell.stop()
+	bell_wall.stop()
+	B.phone_handset.visible = false
+	human.show_handset(true)
+	human.pose = "phone"
+	var prev: Dictionary = lab_results.get(lab_file, {})
+	lab_results[lab_file] = {"turns": lab_turns, "time": lab_t, "min": lab_min, "tries": int(prev.get("tries", 0)) + 1, "best": mini(int(prev.get("best", 999)), lab_turns)}
+	var line := "%s  %s  turns=%d  time=%s  shortest=%d  moves=%s" % [Time.get_datetime_string_from_system(), lab_file, lab_turns, _clock(lab_t), lab_min, " ".join(lab_log)]
+	print("LAB ", line)
+	var path := shot_dir.get_base_dir().path_join("lab_log.txt")
+	DirAccess.make_dir_recursive_absolute(shot_dir.get_base_dir())
+	var f := FileAccess.open(path, FileAccess.READ_WRITE) if FileAccess.file_exists(path) else FileAccess.open(path, FileAccess.WRITE)
+	if f != null:
+		f.seek_end()
+		f.store_line(line)
+		f.close()
+	hud.lab_done = "できた    %d回転    %s" % [lab_turns, _clock(lab_t)]
+	hud.lab_done2 = "最短解は %d回転" % lab_min
+	await wait(1.0)
+	state = St.LABDONE
+
 
 func sfx(nm: String, db := 0.0, pitch := 1.0) -> void:
 	var p := AudioStreamPlayer.new()
@@ -420,6 +556,29 @@ func _unhandled_input(ev: InputEvent) -> void:
 		var w := get_window()
 		w.mode = Window.MODE_WINDOWED if w.mode == Window.MODE_FULLSCREEN else Window.MODE_FULLSCREEN
 		return
+	if ev is InputEventKey and ev.pressed and not ev.echo:
+		if ev.physical_keycode == KEY_L and (state == St.TITLE or (lab and (state == St.PLAY or state == St.LABDONE))):
+			lab_menu = true
+			lab_file = ""
+			_restart()
+			return
+		if ev.physical_keycode == KEY_R and lab and (state == St.PLAY or state == St.DOOR or state == St.LABDONE):
+			_restart()
+			return
+	if state == St.LABMENU:
+		if ev.is_action_pressed("move_up"):
+			lab_sel = (lab_sel + LAB.size() - 1) % LAB.size()
+		elif ev.is_action_pressed("move_down"):
+			lab_sel = (lab_sel + 1) % LAB.size()
+		elif ev.is_action_pressed("act"):
+			lab_file = LAB[lab_sel][0]
+			_restart()
+		elif ev.is_action_pressed("back") or ev.is_action_pressed("pause"):
+			lab_menu = false
+			lab_file = ""
+			_restart()
+		hud.lab_sel = lab_sel
+		return
 	if ev.is_action_pressed("pause"):
 		if state == St.TITLE:
 			if ev is InputEventJoypadButton:
@@ -451,15 +610,19 @@ func _on_act() -> void:
 			if hud.title_alpha > 0.5:
 				_start_game()
 		St.END:
-			AudioServer.set_bus_mute(0, false)
-			for nm: String in ["Bell", "Wall", "Sfx", "Amb"]:
-				AudioServer.remove_bus(AudioServer.get_bus_index(nm))
-			get_tree().reload_current_scene()
+			_restart()
+		St.LABDONE:
+			lab_menu = true
+			lab_file = ""
+			_restart()
 		St.DOOR:
 			_leave_door(false)
 		St.PLAY:
 			if near_phone:
-				_ending()
+				if lab:
+					_lab_finish()
+				else:
+					_ending()
 			elif not near_door.is_empty():
 				var d: Door = near_door.door
 				if not near_door.socket:
@@ -606,6 +769,8 @@ func _door_choose(opt: Dictionary) -> void:
 	var d := cur_door
 	for a in arrows:
 		a.visible = false
+	lab_turns += 1
+	lab_log.append("%d%s" % [d.def.id, LevelLogic.DIRNAME[opt.pos]])
 	sfx("knob_turn", -3.0)
 	await wait(0.32)
 	sfx("door_move", -1.0, randf_range(0.94, 1.04))
@@ -815,7 +980,10 @@ func _process(delta: float) -> void:
 	clock += delta
 	post.set_shader_parameter("time_s", clock)
 	_update_flicker(delta)
-	if state == St.TITLE or state == St.TRANSITION and hud.mode == "title":
+	if lab and state != St.LABDONE:
+		lab_t += delta
+		hud.lab_text = "%s    %d回転    %s" % [hud.lab_title, lab_turns, _clock(lab_t)]
+	if state == St.TITLE or state == St.LABMENU or state == St.TRANSITION and hud.mode == "title":
 		_title_camera()
 	else:
 		_update_room(false)
@@ -841,6 +1009,8 @@ func _title_camera() -> void:
 	listener.global_transform = cam.global_transform
 
 func _cam_cfg() -> Array:
+	if lab:
+		return lab_cfg
 	return CELL_CAMS.get(cam_cell, CAMS[cam_room])
 
 func _update_room(force: bool) -> void:
@@ -848,7 +1018,7 @@ func _update_room(force: bool) -> void:
 	if room == "":
 		return
 	var cell := Building.world_to_cell(player.global_position)
-	var key := cell if CELL_CAMS.has(cell) else NO_CELL
+	var key := cell if CELL_CAMS.has(cell) and not lab else NO_CELL
 	if room == cam_room and key == cam_cell and not force:
 		return
 	if room != cam_room:
@@ -1004,7 +1174,7 @@ func _update_sound(delta: float) -> void:
 	var t_wall := -60.0
 	var from := Vector3.ZERO
 	var ac: Array = ROOM_AC.get(cam_room, ROOM_AC["s"])
-	if state == St.TITLE or (state == St.TRANSITION and hud.mode == "title"):
+	if state == St.TITLE or state == St.LABMENU or (state == St.TRANSITION and hud.mode == "title"):
 		t_db = -25.0
 		t_cut = 1100.0
 		t_wet = 0.55
@@ -1239,6 +1409,31 @@ func _bot_play(actions: Array, shots: bool) -> bool:
 				if shots:
 					await _shot("2%d_room_%s" % [turn_no, cam_room])
 	return true
+
+## play the solver's shortest answer on a test board in the real engine: proves the board loads,
+## the doors carry the player where the rules say, and the telephone can be answered.
+func _bot_lab() -> void:
+	Engine.time_scale = 4.0
+	await wait(1.2)
+	await _shot("lab_%s_start" % lab_file)
+	var res := Solver.search(L, Building.world_to_cell(player.global_position))
+	var ok: bool = res.found and await _bot_play(res.actions, false)
+	if ok:
+		if state == St.DOOR:
+			_on_act()
+			await _bot_until(func() -> bool: return state == St.PLAY)
+		await _bot_goto(B.phone_pos + Vector3(0, 0, 0.9))
+		await get_tree().process_frame
+		await get_tree().process_frame
+		ok = near_phone
+		if not ok:
+			bot_fail = "phone not in reach"
+		else:
+			_on_act()
+			ok = await _bot_until(func() -> bool: return state == St.LABDONE, 20.0)
+			await _shot("lab_%s_done" % lab_file)
+	print("LABBOT %s %s turns=%d shortest=%d %s" % ["OK" if ok else "FAIL", lab_file, lab_turns, lab_min, bot_fail])
+	get_tree().quit(0 if ok else 1)
 
 func _bot_autoplay() -> void:
 	Engine.time_scale = 3.0
