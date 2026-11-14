@@ -1,0 +1,24 @@
+# DOOOOOR: THE CALL  --  building plan
+# cells at odd columns/rows. vertices '+' (digit = door hinge)
+# edges: - | wall, ' ' open, D door slot, A arch, g grille (sound, no walk), v vent (sound, no walk)
+map
++-+-+-+-+-+-+
+|nDn n nDe|
++D2-+-+D4D+
+|wDrvpgkDc|
++ +-+ +D3D+
+|w|p p p|c|
++ +-+-+-+ +
+|wDl l lAc|
++D1D+ + +-+
+|s|x|l l|
++ +-+-+-+
+|s|
++-+
+end
+door 1 type=ccw start=W
+door 2 type=cw start=W
+door 3 type=cw start=N
+door 4 type=cw start=N slots=ENW
+phone 2 1
+start 0 5
