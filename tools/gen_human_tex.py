@@ -113,16 +113,20 @@ def coat():
     hip, hem = coat_row(0.0), coat_row(-0.44)
     fx = 64  # front centre
     # lapels: V from the collar down to the chest, light upper edge, dark outline
-    lap_bot = coat_row(0.33)
+    lap_bot = coat_row(0.36)
+    # shirt / tie V at the throat (narrowing toward the lapel crossing)
+    top = 0
+    for yv in range(top, lap_bot - 1):
+        half = max(0, int(round(4.5 * (lap_bot - 1 - yv) / (lap_bot - 1 - top))))
+        if half > 0:
+            img[yv, fx - half:fx + half + 1] = col((196, 192, 180)) * (0.95 + 0.05 * rng(20 + yv).random())
+    ink.poly([(fx - 1, top + 2), (fx + 1, top + 2), (fx + 1, lap_bot - 3), (fx - 1, lap_bot - 3)], 215)  # tie
     for s in (-1, 1):
-        pts = [(fx + s * 2, lap_bot), (fx + s * 13, shoulder + 3), (fx + s * 17, shoulder + 9), (fx + s * 6, lap_bot - 2)]
-        ink.poly(pts, 60, lite=True)
-        ink.line([pts[0], pts[1]], 150)
+        pts = [(fx + s * 1, lap_bot), (fx + s * 10, top + 6), (fx + s * 15, top + 13), (fx + s * 5, lap_bot)]
+        ink.poly(pts, 45, lite=True)
+        ink.line([pts[0], pts[1]], 170)
         ink.line([pts[1], pts[2]], 120)
-        ink.line([pts[2], pts[3], pts[0]], 160)
-    # shirt / tie V at the throat
-    img[shoulder + 1:lap_bot - 2, fx - 4:fx + 5] = col((150, 150, 146))
-    ink.poly([(fx - 1, shoulder + 3), (fx + 2, shoulder + 3), (fx + 1, lap_bot - 1), (fx, lap_bot - 1)], 200)  # tie
+        ink.line([pts[2], pts[3], pts[0]], 150)
     # fly front: placket line slightly right of centre (wearer's left over right)
     ink.line([(fx + 2, lap_bot), (fx + 2, hem + 4)], 170)
     ink.line([(fx + 3, lap_bot), (fx + 3, hem + 4)], 50, lite=True)
@@ -172,8 +176,8 @@ def coat():
             ink.line([(sx - 6 + k * 3, chest - 2 + k), (sx - 2 + k * 3, chest + 10 + k)], 80)
     # chest drape folds
     for s in (-1, 1):
-        ink.line([(fx + s * 20, chest + 2), (fx + s * 16, belt_t - 4)], 70)
-        ink.line([(fx + s * 26, chest + 6), (fx + s * 24, belt_t - 8)], 60)
+        ink.line([(fx + s * 20, chest + 2), (fx + s * 16, belt_t - 4)], 45)
+        ink.line([(fx + s * 26, chest + 6), (fx + s * 24, belt_t - 8)], 38)
     # skirt folds: long diagonal strokes down to the hem
     for i in range(18):
         x = int(r.integers(0, W))
@@ -224,7 +228,7 @@ def sleeve():
 # ---------------------------------------------------------------- trousers (64x64)
 def trousers():
     H = W = 64
-    img = base(H, W, (60, 60, 66), 6, cloth=0.16, mottled=0.18)
+    img = base(H, W, (62, 60, 58), 6, cloth=0.16, mottled=0.18)
     ink = Ink(H, W)
     r = rng(7)
     # pressed creases down the front and back (u .5 and 0)
@@ -275,9 +279,10 @@ def face():
     for cx in (face_col(0.05), face_col(-0.05)):
         g = np.exp(-(((xx - cx) / 4.0) ** 2 + ((yy - face_row(0.10)) / 4.0) ** 2))
         img *= (1.0 - 0.05 * g)[..., None] * np.array([1.0, 0.97, 0.97])[None, None, :] ** g[..., None]
-    jaw = (yy > face_row(0.075)) & (np.abs(xx - 32) < 18)
-    stub = 0.90 + 0.06 * rng(9).random((H, W)).astype(np.float32)
-    img[jaw] *= stub[jaw][:, None] * np.array([0.97, 0.97, 1.0])
+    # faint stubble: fades in below the mouth corners, strongest along the jaw line
+    jw = np.clip((yy - face_row(0.085)) / 8.0, 0, 1) * np.exp(-((xx - 32) / 16.0) ** 2)
+    stub = 1.0 - jw * (0.06 + 0.05 * rng(9).random((H, W)).astype(np.float32))
+    img *= stub[..., None] * (1.0 - 0.03 * jw[..., None] * np.array([1.0, 1.0, 0.0]))
     # under-chin shadow
     img[int(face_row(0.035)):] *= 0.85
     # eyes: tired, heavy upper lid, small dark iris, faint bags
@@ -316,8 +321,8 @@ def face():
     ink.line([(29, my + 2), (35, my + 2)], 50)   # lower lip shade
     ink.line([(30, my - 3), (34, my - 3)], 40)   # philtrum shade
     # nasolabial lines (tired)
-    ink.line([(27, nb + 1), (25, my + 1)], 60)
-    ink.line([(37, nb + 1), (39, my + 1)], 60)
+    ink.line([(27, nb + 1), (26, my)], 32)
+    ink.line([(37, nb + 1), (38, my)], 32)
     # ears (side columns u .10 / .90)
     for ex in (int(64 * 0.10), int(64 * 0.90)):
         ink.rect([ex - 2, int(face_row(0.15)), ex + 2, int(face_row(0.10))], 50)
@@ -333,7 +338,7 @@ def face():
         elif 0.14 < u < 0.86:
             cut = int(face_row(0.165))
         elif 0.05 < u < 0.95:
-            cut = int(face_row(0.115))  # sideburns / over the ears
+            cut = int(face_row(0.15 if 0.08 < u < 0.92 else 0.12))  # over the ears, short sideburns
         else:
             cut = int(face_row(0.07))   # back
         img[:cut, x] = hair * (0.9 + 0.25 * fr.random())

@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://ivk31becstg2"
-path="res://.godot/imported/30_phone_room.png-968d0153e6fb7deb483c097d770b4830.ctex"
+uid="uid://rsky63dpc5sj"
+path="res://.godot/imported/human_coat.png-0b3f64d634459e47105ef95cfb2ab866.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://docs/screenshots/30_phone_room.png"
-dest_files=["res://.godot/imported/30_phone_room.png-968d0153e6fb7deb483c097d770b4830.ctex"]
+source_file="res://assets/tex/human_coat.png"
+dest_files=["res://.godot/imported/human_coat.png-0b3f64d634459e47105ef95cfb2ab866.ctex"]
 
 [params]
 

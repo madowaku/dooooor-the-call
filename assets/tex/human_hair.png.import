@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://dwjnrqmp8vay3"
-path="res://.godot/imported/13_door3_turning.png-eb3619471d770b3810a0daa91ce37f16.ctex"
+uid="uid://c32hk3q4s5wji"
+path="res://.godot/imported/human_hair.png-e1d5f12e2c5606769489e179b0feaa52.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://docs/screenshots/13_door3_turning.png"
-dest_files=["res://.godot/imported/13_door3_turning.png-eb3619471d770b3810a0daa91ce37f16.ctex"]
+source_file="res://assets/tex/human_hair.png"
+dest_files=["res://.godot/imported/human_hair.png-e1d5f12e2c5606769489e179b0feaa52.ctex"]
 
 [params]
 

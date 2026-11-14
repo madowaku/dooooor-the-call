@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://d0nqmok2djomr"
-path="res://.godot/imported/23_room_k.png-b0763051f9f59a9c30d74f3d34979517.ctex"
+uid="uid://dnalwuyr6e0na"
+path="res://.godot/imported/human_trousers.png-30c168283ba3ade87a8582ffc59c36fd.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://docs/screenshots/23_room_k.png"
-dest_files=["res://.godot/imported/23_room_k.png-b0763051f9f59a9c30d74f3d34979517.ctex"]
+source_file="res://assets/tex/human_trousers.png"
+dest_files=["res://.godot/imported/human_trousers.png-30c168283ba3ade87a8582ffc59c36fd.ctex"]
 
 [params]
 

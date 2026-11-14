@@ -12,9 +12,9 @@
 |---|---|
 | プログラム（GDScript、シェーダ、Python ツール） | すべて生成AI（Claude）が記述 |
 | レベルデザイン・パズル | 生成AIが設計し、全探索プログラムで検証 |
-| テクスチャ・ロゴ・アイコン（`assets/tex/*.png`） | 画像生成AIは不使用。AIが書いた Python（`tools/gen_textures.py`）による手続き生成 |
+| テクスチャ・ロゴ・アイコン（`assets/tex/*.png`） | 画像生成AIは不使用。AIが書いた Python（`tools/gen_textures.py`, `tools/gen_human_tex.py`）による手続き生成 |
 | 効果音（`assets/audio/*.wav`） | 音声生成AIは不使用。AIが書いた Python（`tools/gen_audio.py`）による波形合成 |
-| 3Dモデル | モデル生成AIは不使用。コードで箱と面を組み立てている |
+| 3Dモデル | モデル生成AIは不使用。建物は箱と面、人物は多角形の輪を積んだメッシュをコードで組み立てている |
 | 音楽 | なし（BGMなし） |
 
 既存の DOOOOOR のコード・素材、実在の PS2 作品のモデル・音源・デザインは使っていない。

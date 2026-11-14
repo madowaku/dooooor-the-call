@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://ccmpg1jf34kbw"
-path="res://.godot/imported/33_plan.png-638346394e2201cd02a12177554b7624.ctex"
+uid="uid://kr1lk7t3jlg5"
+path="res://.godot/imported/human_sleeve.png-18db79bc9150550cab8d27042411a0e8.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://docs/screenshots/33_plan.png"
-dest_files=["res://.godot/imported/33_plan.png-638346394e2201cd02a12177554b7624.ctex"]
+source_file="res://assets/tex/human_sleeve.png"
+dest_files=["res://.godot/imported/human_sleeve.png-18db79bc9150550cab8d27042411a0e8.ctex"]
 
 [params]
 
