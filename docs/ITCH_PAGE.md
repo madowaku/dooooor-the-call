@@ -27,7 +27,7 @@ Nothing chases you. Nothing jumps out. There is only the building, the bell, and
 When you answer, the ringing stops.
 
 **Play time:** about 10 minutes.
-**No text tutorial, no music.** Headphones recommended. An optional on-screen sound indicator (C key / Y button) is available if you cannot rely on audio.
+**No text tutorial, no music.** Headphones recommended. An optional on-screen sound indicator (C key / Y button: off, normal, strong) shows the bell as ripples on the rim of the screen: where it comes from, how loud it is, and whether a closed door is muffling it. The game can be finished with the sound off.
 
 ## Controls
 
@@ -36,7 +36,7 @@ When you answer, the ringing stops.
 | Move | Arrow keys / WASD | D-pad / left stick |
 | Action (touch, attach knob, grab, let go, answer) | Z / Space / Enter | A |
 | Take the knob out | X / Backspace | B |
-| Sound indicator on/off | C | Y |
+| Sound indicator: off / normal / strong | C | Y |
 | Pause | Esc | Start |
 | Fullscreen | F11 / Alt+Enter | |
 
@@ -45,7 +45,7 @@ While holding a door, press toward one of the arrows on the floor to turn it.
 ## Credits
 
 Made with Godot 4.7.
-Sound: Kenney (CC0), Parallel Minds "Wrong Room". Font: DotGothic16 (SIL OFL 1.1).
+Sound: Kenney (CC0). Font: DotGothic16 (SIL OFL 1.1).
 
 ## AI disclosure
 

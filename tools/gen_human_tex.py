@@ -7,6 +7,8 @@ UV conventions (must match scripts/human.gd):
   0.5 = front (-Z), 0.75 = left side, 1 = back again. v runs top -> bottom.
   coat:  v = 0.045 + (0.58 - y) * 0.92 (y in hips space); rows 0..5 = stand collar.
   face:  8 columns at u = 0,.04,.10,.28,.5,.72,.90,.96,1 ; v = 1 - (y - 0.015) / 0.23.
+         The brow / eye band is painted dark as the hat brim's shadow (no real shadows on the body).
+  hat:   v 0-.18 crown top, .18-.50 crown side, .50-.62 band, .64-.82 brim top, .86-1 underside.
 """
 import os
 import numpy as np
@@ -269,34 +271,33 @@ def face_col(x, hx=0.088):
 
 def face():
     H = W = 64
-    skin = (212, 172, 136)
-    img = base(H, W, skin, 8, cloth=0.06, mottled=0.10)
+    skin = (198, 166, 134)   # sallow, a little grey
+    img = base(H, W, skin, 8, cloth=0.07, mottled=0.12)
     ink = Ink(H, W)
     hair = col((34, 29, 26))
-    r_hair_front = int(face_row(0.183))
-    # cheek warmth and jaw / stubble shading
+    # cheek hollows under the cheekbones and jaw / stubble shading
     yy, xx = np.mgrid[0:H, 0:W].astype(np.float32)
-    for cx in (face_col(0.05), face_col(-0.05)):
-        g = np.exp(-(((xx - cx) / 4.0) ** 2 + ((yy - face_row(0.10)) / 4.0) ** 2))
-        img *= (1.0 - 0.05 * g)[..., None] * np.array([1.0, 0.97, 0.97])[None, None, :] ** g[..., None]
-    # faint stubble: fades in below the mouth corners, strongest along the jaw line
-    jw = np.clip((yy - face_row(0.085)) / 8.0, 0, 1) * np.exp(-((xx - 32) / 16.0) ** 2)
-    stub = 1.0 - jw * (0.06 + 0.05 * rng(9).random((H, W)).astype(np.float32))
-    img *= stub[..., None] * (1.0 - 0.03 * jw[..., None] * np.array([1.0, 1.0, 0.0]))
+    for cx in (face_col(0.055), face_col(-0.055)):
+        g = np.exp(-(((xx - cx) / 4.5) ** 2 + ((yy - face_row(0.095)) / 3.5) ** 2))
+        img *= (1.0 - 0.13 * g)[..., None] * np.array([1.0, 0.98, 0.97])[None, None, :] ** g[..., None]
+    # stubble: upper lip, chin and along the jaw, greyish
+    jw = np.clip((yy - face_row(0.092)) / 6.0, 0, 1) * np.exp(-((xx - 32) / 18.0) ** 2)
+    stub = 1.0 - jw * (0.12 + 0.10 * rng(9).random((H, W)).astype(np.float32))
+    img *= stub[..., None] * (1.0 - 0.04 * jw[..., None] * np.array([1.0, 0.6, 0.0]))
     # under-chin shadow
-    img[int(face_row(0.035)):] *= 0.85
-    # eyes: tired, heavy upper lid, small dark iris, faint bags
+    img[int(face_row(0.035)):] *= 0.80
+    # eyes: deep-set and tired; only small dark marks, no bright whites
     ey = int(round(face_row(0.138)))
     for x in (0.032, -0.032):
         cx = int(round(face_col(x)))
-        img[ey - 1:ey + 1, cx - 2:cx + 3] = col((226, 216, 204))      # white
-        img[ey - 1:ey + 1, cx - 1:cx + 1] = col((40, 30, 26))         # iris (looks slightly down)
-        ink.line([(cx - 3, ey - 2), (cx + 2, ey - 2)], 210)          # heavy upper lid
+        sock = np.exp(-(((xx - cx) / 3.6) ** 2 + ((yy - ey + 0.5) / 2.2) ** 2))
+        img *= (1.0 - 0.35 * sock)[..., None]                          # sunken socket
+        img[ey - 1:ey, cx - 2:cx + 3] = col((150, 136, 124))           # dull white, barely there
+        img[ey - 1:ey + 1, cx - 1:cx + 1] = col((26, 20, 18))          # iris (looks slightly down)
+        ink.line([(cx - 3, ey - 2), (cx + 2, ey - 2)], 220)          # heavy upper lid
         ink.line([(cx - 3, ey - 1), (cx - 3, ey - 1)], 160)
-        ink.line([(cx - 2, ey + 1), (cx + 2, ey + 1)], 60)           # lower lid
-        ink.line([(cx - 2, ey + 2), (cx + 2, ey + 2)], 45)           # bag
-        # eyelid shadow
-        img[ey - 3:ey - 2, cx - 3:cx + 3] *= 0.9
+        ink.line([(cx - 2, ey + 1), (cx + 2, ey + 1)], 70)           # lower lid
+        ink.line([(cx - 2, ey + 2), (cx + 2, ey + 2)], 55)           # bag
     # brows: straight, low, a little thick, inner ends raised slightly (worried)
     by = int(round(face_row(0.160)))
     for x, s in ((0.032, 1), (-0.032, -1)):
@@ -328,22 +329,68 @@ def face():
         ink.rect([ex - 2, int(face_row(0.15)), ex + 2, int(face_row(0.10))], 50)
         ink.line([(ex, int(face_row(0.145))), (ex, int(face_row(0.105)))], 120)
     img = ink.apply(img, 0.65, 0.3)
-    # hair painted under the hair cap edge so the seam never shows skin
-    img[:r_hair_front] = hair
+    # Fake brim shadow (the game has no real shadows on the body): forehead and eye band
+    # pushed dark with a soft edge, cooler in the shade; nose tip, mouth and chin stay lit.
+    yv = 0.015 + (1.0 - (yy + 0.5) / 64.0) * 0.23          # head-space y of each row
+    t = np.clip((yv - 0.102) / (0.142 - 0.102), 0.0, 1.0)
+    t = t * t * (3.0 - 2.0 * t) * 0.6 + 0.4 * t ** 1.6   # long soft toe, solid by the eyes
+    sh = 1.0 - 0.74 * t
+    img *= sh[..., None] * (1.0 - 0.10 * t[..., None] * np.array([1.0, 0.75, 0.35]))
+    # a slightly darker cast on the right cheek and temple (the hat sits a touch crooked)
+    img *= (1.0 - 0.06 * t * (xx < 32))[..., None]
+    # under the hat: forehead top is never meant to show; keep it near-black like the crown lining
+    img[:int(face_row(0.172))] = col((20, 17, 15))
     fr = rng(10)
     for x in range(W):
         u = x / 64.0
         if 0.30 < u < 0.70:
-            cut = r_hair_front + int(fr.integers(0, 3)) + (2 if abs(u - 0.5) < 0.08 else 0)  # fringe tips
+            cut = int(face_row(0.172))  # no fringe
         elif 0.14 < u < 0.86:
-            cut = int(face_row(0.165))
+            cut = int(face_row(0.168))
         elif 0.05 < u < 0.95:
-            cut = int(face_row(0.15 if 0.08 < u < 0.92 else 0.12))  # over the ears, short sideburns
+            cut = int(face_row(0.142 if 0.08 < u < 0.92 else 0.12))  # over the ears, short sideburns
         else:
             cut = int(face_row(0.07))   # back
-        img[:cut, x] = hair * (0.9 + 0.25 * fr.random())
-    # nape: skin back below the hair, a bit shaded
+        img[:cut, x] = hair * (0.55 + 0.25 * fr.random()) if 0.14 < u < 0.86 else hair * (0.9 + 0.25 * fr.random())
     save("human_face", img)
+
+
+# ---------------------------------------------------------------- hat (64x64)
+def hat_tex():
+    """v: 0-.18 crown top, .18-.50 crown side, .50-.62 band, .64-.82 brim top, .86-1 underside"""
+    H = W = 64
+    felt = (104, 96, 87)    # faded grey-brown felt, darker and greyer than the coat
+    img = base(H, W, felt, 16, cloth=0.10, mottled=0.22)
+    ink = Ink(H, W)
+    r = rng(17)
+    row = lambda v: int(round(v * 64))
+    # crown top bleached by years of light, with a grubby crease line along the dent
+    img[:row(0.18)] *= np.array([1.08, 1.07, 1.05])
+    ink.line([(0, 1), (W, 1)], 80)
+    # sweat stain just above the band, uneven
+    st = blocky_noise(6, W, 4, 18)
+    img[row(0.42):row(0.50)] *= (1.0 - 0.18 * st[:row(0.50) - row(0.42)])[..., None]
+    # crown side dents / handling marks at the front pinch (u .4 / .6)
+    for ux in (0.40, 0.60):
+        ink.line([(int(ux * W), row(0.18)), (int(ux * W) + (2 if ux < 0.5 else -2), row(0.40))], 110)
+        ink.line([(int(ux * W) + 1, row(0.18)), (int(ux * W) + (3 if ux < 0.5 else -1), row(0.36))], 60, lite=True)
+    # ribbon band, dark and dull, with a small bow knot on the left side (u .75)
+    b0, b1 = row(0.50), row(0.62)
+    img[b0:b1] = col((60, 55, 50)) * (0.85 + 0.2 * blocky_noise(b1 - b0, W, 2, 19))[..., None]
+    ink.line([(0, b0), (W, b0)], 70)
+    img[b0 - 1:b1 + 1, 46:51] = col((48, 43, 39))
+    ink.rect([46, b0 - 1, 50, b1], 140, outline=True)
+    # brim top: worn edge (lighter, frayed) and finger-grime at the front (u .5)
+    img[row(0.64):row(0.66)] *= 0.75   # crease where the brim meets the crown
+    img[row(0.79):row(0.84)] *= np.array([1.10, 1.09, 1.06])
+    img[row(0.70):row(0.84), 26:38] *= 0.82
+    for i in range(14):
+        x = int(r.integers(0, W))
+        ink.line([(x, row(0.67)), (x + int(r.integers(-2, 3)), row(0.80))], int(r.integers(40, 90)))
+    # underside: shadowed felt
+    img[row(0.84):] *= 0.45
+    img = ink.apply(img, 0.5, 0.25)
+    save("human_hat", img)
 
 
 # ---------------------------------------------------------------- hair (64x32)
@@ -406,6 +453,7 @@ if __name__ == "__main__":
     sleeve()
     trousers()
     face()
+    hat_tex()
     hair_tex()
     skin_tex()
     shoe_tex()

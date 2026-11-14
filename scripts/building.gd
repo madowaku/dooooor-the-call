@@ -527,7 +527,7 @@ func _build_props() -> void:
 	mb.quad("board", Vector3(6.6, 1.2, 9.0 + TH + 0.06), X * 1.2, Vector3(0, 0.9, 0), Z, Vector2(0, 1), Vector2(1, 0), Vector2(0, -1))
 	mb.box("wood_dark", Vector3(7.2, 1.65, 9.0 + TH + 0.02), Vector3(1.3, 1.0, 0.03))
 	_sign(mb, "sign_lobby", Vector3(10.5, 2.42, 9.0 + TH), X, Z)
-	_sign(mb, "sign_store", Vector3(4.0, 2.42, 12.0 - TH), X, -Z)
+	_sign(mb, "sign_store", Vector3(4.0, 2.42, 12.0 - TH), -X, -Z)
 	clock_pos = Vector3(9.2, 2.15, 9.0 + TH + 0.03)
 	mb.quad("@clock", clock_pos + Vector3(-0.22, -0.22, 0), X * 0.44, Vector3(0, 0.44, 0), Z, Vector2(0, 1), Vector2(1, 0), Vector2(0, -1), 9.0)
 	_prop_mesh(mb, "l")
@@ -568,7 +568,7 @@ func _build_props() -> void:
 	_prop_mesh(mb, "r")
 	# ---- nook: plate above the phone room doorway, a stool
 	mb = MB.new()
-	_sign(mb, "sign_phone", Vector3(11.1, 2.42, 6.0 - TH), X, -Z)
+	_sign(mb, "sign_phone", Vector3(11.1, 2.42, 6.0 - TH), -X, -Z)
 	mb.box("wood_mid", Vector3(9.6, 0.42, 3.55), Vector3(0.34, 0.05, 0.34))
 	mb.box("wood_dark", Vector3(9.6, 0.2, 3.55), Vector3(0.22, 0.4, 0.22))
 	_prop_mesh(mb, "k")

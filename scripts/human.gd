@@ -25,6 +25,9 @@ const FACE_U := [0.0, 0.04, 0.10, 0.28, 0.5, 0.72, 0.90, 0.96, 1.0]
 const SHOE_PROFILE := [Vector2(0.5, 1.0), Vector2(1.0, 0.1), Vector2(0.75, -1.0),
 	Vector2(-0.75, -1.0), Vector2(-1.0, 0.1), Vector2(-0.5, 1.0)]
 const SHOE_U := [0.0, 0.17, 0.34, 0.66, 0.83, 0.92, 1.0]
+## hat band base height on the head joint, and its forward tip (negative = brim front down)
+const HAT_Y := 0.181
+const HAT_TILT := -0.11
 
 var pose: String = "idle"
 var walk_speed: float = 0.0
@@ -155,6 +158,7 @@ func _init() -> void:
 	var hair := _mat("res://assets/tex/human_hair.png")
 	var skin := _mat("res://assets/tex/human_skin.png")
 	var shoe := _mat("res://assets/tex/human_shoe.png")
+	var hat := _mat("res://assets/tex/human_hat.png")
 
 	var hips := _joint("hips", self, Vector3(0, 0.90, 0))
 	_mesh(hips, _build_hip_block(), coat)
@@ -171,6 +175,9 @@ func _init() -> void:
 	var head := _joint("head", torso, Vector3(0, 0.56, 0))
 	_mesh(head, _build_head(), face)
 	_mesh(head, _build_hair(), hair)
+	# old felt hat, a size too big, sitting low and tipped forward so the brim hides the eyes
+	var hat_mi := _add_mesh(head, _build_hat(), hat, Vector3(0, HAT_Y, 0.002))
+	hat_mi.rotation = Vector3(HAT_TILT, 0, 0.025)
 
 	for side: float in [1.0, -1.0]:
 		var s := "_r" if side > 0 else "_l"
@@ -657,6 +664,7 @@ func _build_head() -> ArrayMesh:
 	var mb := MB.new()
 	# y, hx, hz, cz, front-flatten : chin pole, jaw, cheekbones, brow, crown, top pole
 	var spec := [[0.022, 0.0, 0.0, -0.05, 1.0], [0.065, 0.072, 0.085, -0.012, 1.0],
+		[0.092, 0.08, 0.093, -0.006, 0.98],
 		[0.12, 0.088, 0.098, 0.0, 0.97], [0.17, 0.09, 0.102, 0.004, 0.96],
 		[0.218, 0.07, 0.085, 0.008, 1.0], [0.245, 0.0, 0.0, 0.01, 1.0]]
 	var rings := []
@@ -664,6 +672,10 @@ func _build_head() -> ArrayMesh:
 	for s: Array in spec:
 		rings.append(_ring(8, s[0], s[1], s[2], 0.0, s[3], 1.06, s[4]))
 		vs.append(_face_v(s[0]))
+	# a squarer jaw angle, a hollow under the cheekbone, cheekbones a touch proud
+	_scale_pts(rings, 1, [1, 2, 6, 7], Vector3(1.08, 1.0, 1.0))
+	_scale_pts(rings, 2, [3, 5], Vector3(0.92, 1.0, 0.95))
+	_scale_pts(rings, 3, [3, 5], Vector3(1.04, 1.0, 1.0))
 	mb.loft(rings, FACE_U, vs, true)
 	# nose wedge
 	var nl := Vector3(-0.011, 0.094, -0.094)
@@ -697,26 +709,94 @@ static func _face_v(y: float) -> float:
 
 func _build_hair() -> ArrayMesh:
 	var mb := MB.new()
-	# hair edge height per column: long at the back, above the ears, fringe at the front
-	var edge := [0.075, 0.10, 0.145, 0.168, 0.172, 0.168, 0.145, 0.10]
+	# Short back and sides showing under the hat; no fringe (the front edge stays inside the crown).
+	var edge := [0.072, 0.098, 0.138, 0.176, 0.18, 0.176, 0.138, 0.098]
 	var r0 := PackedVector3Array()
 	var r1 := PackedVector3Array()
-	var r2 := PackedVector3Array()
 	var r3 := PackedVector3Array()
 	for i in 8:
 		var a := TAU * float(i) / 8.0
 		var front := absi(i - 4) <= 1
-		r0.append(_skull(edge[i], a, 0.017 if front else 0.011))
-		r1.append(_skull(0.19, a, 0.018))
-		r2.append(_skull(0.226, a, 0.021))
-		r3.append(Vector3(0, 0.254, 0.012))
-	mb.loft([r3, r2, r1, r0], _us(8), [0.0, 0.25, 0.55, 1.0], true)
+		r0.append(_skull(edge[i], a, 0.005 if front else 0.007))
+		r1.append(_skull(0.19, a, 0.009))
+		r3.append(Vector3(0, 0.222, 0.01))
+	mb.loft([r3, r1, r0], _us(8), [0.0, 0.55, 1.0], true)
 	return mb.build()
+
+
+## Worn felt fedora in hat space (origin at the band base, -Z front). The node sits at
+## HAT_Y on the head joint, tipped forward by HAT_TILT. v: 0-.18 crown top, .18-.62 crown
+## side with the band at .50-.62, .64-.82 brim top, .86-1 brim underside.
+func _build_hat() -> ArrayMesh:
+	var mb := MB.new()
+	var us := _us(8)
+	var base := _ring(8, 0.0, 0.106, 0.122, 0.0, 0.004, 1.04)
+	var band := _ring(8, 0.032, 0.103, 0.118, 0.0, 0.004, 1.04)
+	var top := _ring(8, 0.087, 0.086, 0.104, 0.0, 0.008, 1.0)
+	# front pinch: the two front corners squeezed in and down, crown sloping to the front
+	for i: int in [3, 5]:
+		top[i] = Vector3(top[i].x * 0.74, top[i].y - 0.016, top[i].z * 0.9)
+	top[4] = top[4] + Vector3(0, -0.013, 0.006)
+	top[2] = top[2] + Vector3(0, -0.004, 0)
+	top[6] = top[6] + Vector3(0, -0.004, 0)
+	top[0] = top[0] + Vector3(0, 0.003, 0)
+	mb.loft([top, band, base], us, [0.18, 0.50, 0.62], true)
+	# crown top: a centre crease running front to back (two low points)
+	var cf := Vector3(0.0, 0.064, -0.035)
+	var cb := Vector3(0.0, 0.071, 0.05)
+	var up := Vector3.UP
+	for i in 8:
+		var j := (i + 1) % 8
+		var c := cf if (i >= 2 and i <= 5) else cb
+		var cuv := Vector2(0.5, 0.03) if c == cf else Vector2(0.02, 0.03)
+		mb.flat([top[i], top[j], c], [Vector2(us[i], 0.17), Vector2(us[i + 1], 0.17), cuv], up)
+	mb.flat([top[2], cf, cb], [Vector2(0.25, 0.17), Vector2(0.5, 0.03), Vector2(0.02, 0.03)], up)
+	mb.flat([top[6], cb, cf], [Vector2(0.75, 0.17), Vector2(0.02, 0.03), Vector2(0.5, 0.03)], up)
+	# brim: oval (wider front and back), snapped down at the front, the back turned up a little
+	var outer := PackedVector3Array()
+	for i in 8:
+		var a := TAU * float(i) / 8.0
+		var p := base[i]
+		var d := Vector3(p.x, 0, p.z - 0.004).normalized()
+		var w := lerpf(0.047, 0.06, absf(cos(a)))
+		var y := -0.021 * maxf(0.0, -cos(a)) + 0.012 * maxf(0.0, cos(a)) + 0.006 * sin(a) * sin(a)
+		outer.append(p + d * w + Vector3(0, y, 0))
+	var under_in := _ring(8, -0.006, 0.09, 0.104, 0.0, 0.004, 1.04)
+	var base_t := mb.pts.size()
+	for j in 9:
+		var i := j % 8
+		var d := Vector3(outer[i].x, 0, outer[i].z).normalized()
+		mb.add(base[i], Vector3.UP, Vector2(us[j], 0.645))
+		mb.add(outer[i], (Vector3.UP + d * 0.35).normalized(), Vector2(us[j], 0.82))
+	var base_u := mb.pts.size()
+	for j in 9:
+		var i := j % 8
+		var d := Vector3(outer[i].x, 0, outer[i].z).normalized()
+		mb.add(under_in[i], Vector3.DOWN, Vector2(us[j], 0.99))
+		mb.add(outer[i] + Vector3(0, -0.005, 0), (Vector3.DOWN + d * 0.35).normalized(), Vector2(us[j], 0.87))
+	for j in 8:
+		for b: int in [base_t, base_u]:
+			var a0 := b + j * 2
+			mb.tri(a0, a0 + 1, a0 + 3)
+			mb.tri(a0, a0 + 3, a0 + 2)
+	return mb.build()
+
+
+static func _scale_pts(rings: Array, r: int, ids: Array, s: Vector3) -> void:
+	var ring: PackedVector3Array = rings[r]
+	var c := Vector3.ZERO
+	for p in ring:
+		c += p
+	c /= float(ring.size())
+	for i: int in ids:
+		ring[i] = c + (ring[i] - c) * s
+	rings[r] = ring
 
 
 func _build_upper_arm(side: float) -> ArrayMesh:
 	var mb := MB.new()
-	_tube(mb, 6, [[0.02, 0.0, 0.0, -0.014, 0.0], [0.0, 0.044, 0.052, -0.005, 0.0], [-0.07, 0.054, 0.056, 0.004, 0.0],
+	# rounded cap tucked in under the coat's shoulder line (no shoulder-pad corner on top)
+	_tube(mb, 6, [[-0.002, 0.0, 0.0, -0.034, 0.0], [-0.02, 0.036, 0.046, -0.016, 0.0], [-0.075, 0.054, 0.056, 0.004, 0.0],
 		[-0.27, 0.046, 0.05, 0.0, 0.004], [-0.305, 0.034, 0.038, 0.0, 0.004]], side, 0.0, 0.47)
 	return mb.build()
 

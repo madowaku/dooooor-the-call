@@ -22,6 +22,13 @@ const CAMS := {
 	"p": [Vector3(3.5, 2.45, 8.55), Vector3(7.2, 0.7, 5.3), 0.3, 62.0],
 }
 
+## the telephone gets its own cameras: the long look down the mats, then the alcove itself
+const NO_CELL := Vector2i(-1, -1)
+const CELL_CAMS := {
+	Vector2i(2, 2): [Vector3(7.9, 1.75, 8.8), Vector3(7.5, 0.9, 4.0), 0.12, 46.0],
+	Vector2i(2, 1): [Vector3(8.6, 1.6, 5.8), Vector3(7.35, 0.85, 3.75), 0.2, 52.0],
+}
+
 ## how each room answers: [reverb size, damping, extra wet on the bell, wet on footsteps and doors]
 const ROOM_AC := {
 	"s": [0.78, 0.35, 0.0, 0.2], "w": [0.8, 0.3, 0.02, 0.22], "c": [0.8, 0.22, 0.03, 0.26],
@@ -52,6 +59,10 @@ var intro_done := false
 var first_attach_done := false
 var cur_door: Door = null
 var cam_room := ""
+var cam_cell := NO_CELL
+var phone_seen := false
+var aid_mode := 0
+var line: AudioStreamPlayer
 var cam_look := Vector3.ZERO
 var cam_override := false
 var cam_shake := 0.0
@@ -107,6 +118,11 @@ func _ready() -> void:
 	if OS.has_feature("template"):
 		shot_dir = OS.get_executable_path().get_base_dir().path_join("shots")
 	_enter_title()
+	for a: String in args:
+		if a.begins_with("--aid="):
+			aid_mode = clampi(int(a.substr(6)), 0, 2)
+			aid_on = aid_mode > 0
+			hud.aid_strong = aid_mode == 2
 	if "--autoplay" in args:
 		bot = true
 		_bot_autoplay.call_deferred()
@@ -174,14 +190,14 @@ func _setup_audio() -> void:
 	srv.dry = 1.0
 	srv.wet = 0.16
 	AudioServer.add_bus_effect(AudioServer.get_bus_index("Sfx"), srv)
-	for f: String in ["bell_ring", "bell_tail", "rattle", "knob_insert", "knob_remove", "knob_turn", "thud", "door_move", "door_seat", "receiver_lift", "room_tone", "fluoro_buzz", "clock_tick", "vending_hum", "ui_start", "knob_ting", "bell_wall"]:
+	for f: String in ["bell_ring", "bell_tail", "rattle", "knob_insert", "knob_remove", "knob_turn", "thud", "door_move", "door_seat", "receiver_lift", "room_tone", "fluoro_buzz", "clock_tick", "vending_hum", "ui_start", "knob_ting", "bell_wall", "door_squeak", "line_next", "line_cut"]:
 		streams[f] = load("res://assets/audio/%s.wav" % f)
 	for f: String in ["bell_ring", "bell_wall", "room_tone", "fluoro_buzz", "clock_tick", "vending_hum"]:
 		var w: AudioStreamWAV = streams[f]
 		w.loop_mode = AudioStreamWAV.LOOP_FORWARD
 		w.loop_begin = 0
 		w.loop_end = int(w.get_length() * w.mix_rate)
-	for f: String in ["cloth1", "cloth2", "cloth3", "creak1", "creak2", "creak3", "pm_squeak"]:
+	for f: String in ["cloth1", "cloth2", "cloth3", "creak1", "creak2", "creak3"]:
 		streams[f] = load("res://assets/audio/%s.ogg" % f)
 	for surf: String in ["wood", "carpet", "concrete"]:
 		for i in 5:
@@ -322,6 +338,10 @@ func _setup_sound_sources() -> void:
 	bell_tail.stream = streams["bell_tail"]
 	bell_tail.bus = "Bell"
 	add_child(bell_tail)
+	line = AudioStreamPlayer.new()
+	line.stream = streams["line_next"]
+	line.volume_db = -15.0
+	add_child(line)
 	amb = AudioStreamPlayer.new()
 	amb.stream = streams["room_tone"]
 	amb.bus = "Amb"
@@ -416,7 +436,10 @@ func _unhandled_input(ev: InputEvent) -> void:
 			get_tree().quit()
 		return
 	if ev.is_action_pressed("aid"):
-		aid_on = not aid_on
+		aid_mode = (aid_mode + 1) % 3
+		aid_on = aid_mode > 0
+		hud.aid_strong = aid_mode == 2
+		hud.aid_note = 1.8
 	if ev.is_action_pressed("act"):
 		_on_act()
 	elif ev.is_action_pressed("back"):
@@ -586,7 +609,7 @@ func _door_choose(opt: Dictionary) -> void:
 	sfx("knob_turn", -3.0)
 	await wait(0.32)
 	sfx("door_move", -1.0, randf_range(0.94, 1.04))
-	sfx("pm_squeak", -15.0, randf_range(0.8, 1.0))
+	sfx("door_squeak", -17.0, randf_range(0.8, 1.0))
 	sfx("creak%d" % randi_range(1, 3), -12.0, 0.7)
 	var strain := "push" if L.is_push(d.index, opt.turn) else "pull"
 	d.turn(opt.pos, opt.turn, 2.35)
@@ -693,9 +716,10 @@ func _ending() -> void:
 	human.has_look = true
 	human.look_target = B.phone_pos + Vector3(0, 0.7, 0)
 	cam_override = true
-	cam.global_position = B.phone_pos + Vector3(0.95, 1.2, 0.5)
-	cam.look_at(B.phone_pos + Vector3(-0.1, 0.78, 0.1))
-	cam.fov = 40.0
+	# from the side: the telephone on one half of the frame, the hand coming in from the other
+	cam.global_position = B.phone_pos + Vector3(1.3, 1.02, 0.3)
+	cam.look_at(B.phone_pos + Vector3(0.0, 0.84, 0.3))
+	cam.fov = 42.0
 	# let it ring once more, close.
 	await wait(2.4)
 	human.pose = "reach"
@@ -717,7 +741,10 @@ func _ending() -> void:
 	cam.fov = 36.0
 	var tw2 := create_tween()
 	tw2.tween_property(self, "amb_gain", 0.0, 5.5)
-	await wait(8.5)
+	# the line is open. somebody dials. somewhere else, another bell.
+	await wait(0.8)
+	line.play()
+	await wait(7.7)
 	# the building, from above, exactly as the player left it.
 	env.fog_density = 0.0
 	cam.global_position = Vector3(7.5, 24.5, 9.5)
@@ -727,6 +754,11 @@ func _ending() -> void:
 	var tw3 := create_tween()
 	tw3.tween_property(hud, "fade", 1.0, 3.0)
 	await tw3.finished
+	# it is still ringing in the dark; then the line is cut in the middle of a ring
+	await wait(2.5)
+	line.stop()
+	sfx("line_cut", -8.0)
+	await wait(1.6)
 	hud.mode = "end"
 	var tw4 := create_tween()
 	tw4.tween_property(hud, "end_alpha", 1.0, 2.5)
@@ -808,21 +840,57 @@ func _title_camera() -> void:
 	cam.look_at(EXT + Vector3(0.6, 4.4, -6.0))
 	listener.global_transform = cam.global_transform
 
+func _cam_cfg() -> Array:
+	return CELL_CAMS.get(cam_cell, CAMS[cam_room])
+
 func _update_room(force: bool) -> void:
 	var room := B.room_of(player.global_position)
-	if room == "" or (room == cam_room and not force):
+	if room == "":
+		return
+	var cell := Building.world_to_cell(player.global_position)
+	var key := cell if CELL_CAMS.has(cell) else NO_CELL
+	if room == cam_room and key == cam_cell and not force:
 		return
 	if room != cam_room:
 		cam_room = room
 		_update_layers()
 		step_surface = Building.ROOMS[room].step
+	cam_cell = key
 	if cam_override:
 		return
-	var cfg: Array = CAMS[room]
+	var cfg := _cam_cfg()
 	cam.global_position = cfg[0]
 	cam.fov = cfg[3]
 	cam_look = _look_goal(cfg)
 	cam.look_at(cam_look)
+	if key != NO_CELL and not phone_seen and state == St.PLAY:
+		_discover()
+
+## the first time the telephone comes into view: stop, and let it be looked at.
+func _discover() -> void:
+	phone_seen = true
+	state = St.BUSY
+	hud.mode = "none"
+	human.pose = "idle"
+	human.walk_speed = 0.0
+	human.has_look = true
+	human.look_target = B.phone_pos + Vector3(0, 0.7, 0)
+	cam_override = true
+	var cfg: Array = CELL_CAMS[Vector2i(2, 2)]
+	cam.global_position = cfg[0]
+	cam.look_at(cfg[1])
+	cam.fov = 50.0
+	create_tween().tween_property(cam, "fov", 38.0, 2.8).set_trans(Tween.TRANS_SINE)
+	if bot:
+		await wait(1.6)
+		await _shot("29_discovery")
+		await wait(1.2)
+	else:
+		await wait(2.9)
+	cam_override = false
+	hud.mode = "play"
+	_update_room(true)
+	state = St.PLAY
 
 func _update_layers() -> void:
 	var room := B.room_of(player.global_position)
@@ -835,7 +903,7 @@ func _look_goal(cfg: Array) -> Vector3:
 
 func _update_camera(delta: float) -> void:
 	if not cam_override and cam_room != "":
-		var cfg: Array = CAMS[cam_room]
+		var cfg := _cam_cfg()
 		cam_look = cam_look.lerp(_look_goal(cfg), minf(1.0, delta * 3.0))
 		cam.global_position = cfg[0]
 		cam.look_at(cam_look)
@@ -924,6 +992,12 @@ func _update_sound(delta: float) -> void:
 		field.update()
 	var ring_on := not bell_stopped and fmod(bell.get_playback_position(), 3.0) < 1.05
 	hud.ring_env = 1.0 if ring_on else 0.0
+	# the handset rattles in its cradle exactly while the clapper runs
+	B.phone_handset.rotation.z = sin(clock * 83.0) * 0.045 if ring_on else 0.0
+	var lpos_ := line.get_playback_position() if line.playing else -1.0
+	hud.echo_env = 1.0 if lpos_ >= 5.8 and fmod(lpos_ - 5.8, 3.0) < 1.0 else 0.0
+	if hud.echo_env > 0.0 and not cam.is_position_behind(B.phone_pos):
+		hud.echo_pos = cam.unproject_position(B.phone_pos + Vector3(0, 0.75, 0))
 	var t_db := -30.0
 	var t_cut := 800.0
 	var t_wet := 0.45
@@ -938,6 +1012,7 @@ func _update_sound(delta: float) -> void:
 		hud.aid_level = 0.2
 		hud.aid_muffle = 0.8
 		hud.aid_dir = Vector2.ZERO
+		hud.wall_level = 0.0
 	else:
 		var lpos := player.global_position
 		var q := field.query(lpos)
@@ -959,15 +1034,9 @@ func _update_sound(delta: float) -> void:
 		bell_src = bell_src.lerp(goal, minf(1.0, delta * 4.0))
 		hud.aid_level = clampf(1.0 + t_db / 34.0, 0.0, 1.0)
 		hud.aid_muffle = clampf(mf, 0.0, 1.0)
-		var b := cam.global_transform.basis
-		var sx := dv.dot(b.x)
-		var fwd := -b.z
-		fwd.y = 0
-		if fwd.length() < 0.2:
-			fwd = b.y
-			fwd.y = 0
-		var sy := -dv.dot(fwd.normalized())
-		hud.aid_dir = Vector2(sx, sy).normalized() if not bell_stopped else Vector2.ZERO
+		hud.aid_dir = _screen_dir(dv) if not bell_stopped else Vector2.ZERO
+		hud.wall_dir = _screen_dir(Vector3(field.phone_pos.x - lpos.x, 0, field.phone_pos.z - lpos.z))
+		hud.wall_level = clampf(1.0 + t_wall / 30.0, 0.0, 1.0) if not bell_stopped else 0.0
 		if bell_stopped:
 			hud.aid_level = 0.0
 	var busy := false
@@ -993,6 +1062,19 @@ func _update_sound(delta: float) -> void:
 	for p: AudioStreamPlayer3D in loops:
 		p.volume_db = float(p.get_meta("base")) + ag
 
+## a direction on the floor, as it appears on the screen (x right, y down)
+func _screen_dir(dv: Vector3) -> Vector2:
+	if dv.length() < 0.01:
+		return Vector2.ZERO
+	dv = dv.normalized()
+	var b := cam.global_transform.basis
+	var fwd := -b.z
+	fwd.y = 0
+	if fwd.length() < 0.2:
+		fwd = b.y
+		fwd.y = 0
+	return Vector2(dv.dot(b.x), -dv.dot(fwd.normalized())).normalized()
+
 func _on_footstep() -> void:
 	if state == St.TITLE:
 		return
@@ -1001,6 +1083,11 @@ func _on_footstep() -> void:
 
 # ------------------------------------------------------------------ QA bot
 func _shot(nm: String) -> void:
+	# with the visual aid on, photograph the lights while the bell is actually sounding
+	var guard := 0
+	while aid_on and not bell_stopped and state != St.TITLE and absf(fmod(bell.get_playback_position(), 3.0) - 0.85) > 0.12 and guard < 900:
+		guard += 1
+		await get_tree().process_frame
 	await RenderingServer.frame_post_draw
 	DirAccess.make_dir_recursive_absolute(shot_dir)
 	var img := get_viewport().get_texture().get_image()
@@ -1019,13 +1106,21 @@ func _bot_until(cond: Callable, limit := 40.0) -> bool:
 func _bot_goto(target: Vector3, limit := 12.0) -> bool:
 	var t := 0.0
 	while true:
+		if state == St.BUSY:
+			bot_vec = Vector3.ZERO
+			await get_tree().process_frame
+			t += get_process_delta_time()
+			if t > limit + 8.0:
+				bot_fail = "stuck in a cut-scene"
+				return false
+			continue
 		var dv := Vector3(target.x - player.global_position.x, 0, target.z - player.global_position.z)
 		if dv.length() < 0.1:
 			break
 		bot_vec = dv.normalized() * minf(1.0, dv.length() * 4.0 + 0.2)
 		await get_tree().physics_frame
 		t += get_physics_process_delta_time()
-		if t > limit or state != St.PLAY:
+		if t > limit or (state != St.PLAY and state != St.BUSY):
 			bot_vec = Vector3.ZERO
 			bot_fail = "could not walk to %s (stuck at %s, state %d)" % [target, player.global_position, state]
 			return false

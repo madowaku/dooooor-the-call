@@ -35,4 +35,3 @@
 
 - [ ] ローカルブランチ `jam/the-call` をコミットするか決める（未コミット）
 - [ ] `origin`（github.com/madowaku/dooooor-the-call）へ push するか決める（未 push）
-- [ ] 公開リポジトリにする場合、Wrong Room の音素材（`assets/audio/pm_squeak.ogg`）は「音素材としての再配布不可」のため、リポジトリに含めるかどうかを決める

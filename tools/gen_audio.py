@@ -267,4 +267,69 @@ body = 0.8 * np.sin(2 * np.pi * 205 * tt) + 0.5 * np.sin(2 * np.pi * 131 * tt + 
 body += 1.2 * fft_filter(noise(nn), lo=90, hi=380, slope=3)
 wallb = fft_filter(env * body, lo=70, hi=430, slope=3)
 save("bell_wall", wallb, 0.7)
+
+# ---------------------------------------------------------------- our own hinge squeal (replaces a third-party sample)
+n = int(2.2 * SR)
+tt = t(n)
+wander = fft_filter(noise(n), hi=2.5, slope=2)
+wander /= np.max(np.abs(wander)) + 1e-9
+f = 760 + 420 * wander + 90 * np.sin(2 * np.pi * 0.7 * tt)
+ph = 2 * np.pi * np.cumsum(f) / SR
+sq = np.zeros(n)
+for h in range(1, 7):
+    sq += np.sin(h * ph + 0.3 * h) / h ** 1.2
+grip = fft_filter(noise(n), hi=7, slope=2)
+grip /= np.max(np.abs(grip)) + 1e-9
+gate = np.clip(grip * 2.2 + 0.25, 0, 1) ** 2
+sq = fft_filter(sq * gate, lo=520, hi=5200, slope=2) * np.sin(np.pi * np.clip(tt / 2.2, 0, 1)) ** 0.6
+save("door_squeak", sq, 0.5)
+
+# ---------------------------------------------------------------- the line, after the receiver is lifted
+# nobody speaks. a rotary dial is wound and let go, twice. then, through the earpiece, another bell.
+n = int(23 * SR)
+tt = t(n)
+line = 0.05 * fft_filter(noise(n), lo=300, hi=3400, slope=2) * np.clip(tt / 1.2, 0, 1)
+line += 0.012 * np.sin(2 * np.pi * 150 * tt) + 0.008 * np.sin(2 * np.pi * 250 * tt + 1.0)
+
+
+def dial(buf, digit, at):
+    w = 0.14 + 0.07 * digit
+    k = int(w * SR)
+    wind = fft_filter(noise(k), lo=900, hi=3000, slope=2) * np.linspace(0.3, 1, k) * (0.6 + 0.4 * np.sin(2 * np.pi * 38 * t(k)))
+    place(buf, 0.22 * wind, at)
+    place(buf, click(int(0.05 * SR), 1500, 0.006, 0.6, 1.0), at + w)
+    r0 = at + w + 0.16
+    k = int((digit * 0.1 + 0.12) * SR)
+    place(buf, 0.10 * fft_filter(noise(k), lo=1500, hi=3200, slope=2), r0)
+    for i in range(digit):
+        place(buf, click(int(0.04 * SR), 1900 + 60 * rng.random(), 0.004, 0.8, 1.2), r0 + 0.05 + i * 0.1)
+    place(buf, click(int(0.06 * SR), 900, 0.01, 0.7, 1.0), r0 + digit * 0.1 + 0.1)
+
+
+dial(line, 3, 1.3)
+dial(line, 7, 2.9)
+FAR_A = dict(f=[988.0, 2370.0, 4050.0, 1580.0], a=[1.0, 0.4, 0.15, 0.2], d=[0.62, 0.3, 0.16, 0.36])
+FAR_B = dict(f=[1175.0, 2820.0, 4700.0, 1880.0], a=[0.9, 0.38, 0.14, 0.18], d=[0.58, 0.28, 0.15, 0.33])
+k = int(2.8 * SR)
+one = np.zeros(k)
+at = 0.01
+j = 0
+while at < 1.0:
+    seg = strike(FAR_A if j % 2 == 0 else FAR_B, 0.6 + 0.4 * rng.random(), k - int(at * SR))
+    one[int(at * SR):] += seg[: k - int(at * SR)]
+    at += (1.0 / 22.0) * (1 + 0.04 * rng.standard_normal())
+    j += 1
+ir = noise(int(1.1 * SR)) * np.exp(-t(int(1.1 * SR)) / 0.28)
+N2 = k + len(ir)
+wet = np.fft.irfft(np.fft.rfft(one, N2) * np.fft.rfft(ir, N2), N2)[:k]
+one = one / (np.max(np.abs(one)) + 1e-9) + 0.9 * wet / (np.max(np.abs(wet)) + 1e-9)
+for r in range(6):
+    place(line, 0.34 * one, 5.8 + 3.0 * r)
+line = np.tanh(2.2 * fft_filter(line, lo=320, hi=3100, slope=3))
+save("line_next", line, 0.6)
+n = int(0.3 * SR)
+y = np.zeros(n)
+place(y, click(int(0.08 * SR), 1250, 0.008, 1.0, 1.4), 0.01)
+place(y, 0.6 * np.sin(2 * np.pi * 110 * t(int(0.12 * SR))) * np.exp(-t(int(0.12 * SR)) / 0.03), 0.01)
+save("line_cut", y, 0.45)
 print("done")

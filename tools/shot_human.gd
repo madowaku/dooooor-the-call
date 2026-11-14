@@ -2,7 +2,9 @@ extends SceneTree
 ## Renders turnaround sheets of the protagonist for eyeballing the model.
 ## Run WITHOUT --headless:  godot --path . -s tools/shot_human.gd
 ## Writes build/shots/human_<pose>.png (front | three-quarter | side | back, 512x384 each)
-## and build/shots/human_face.png (head close-ups).
+## and build/shots/human_face.png (head close-ups: front, 3/4, side, from below, game line of sight),
+## human_game.png / human_game_close.png (room camera ~2.4 m up, 4-6 m away) and
+## human_top.png (overhead door camera, 8.4 m up).
 
 const W := 512
 const H := 384
@@ -73,18 +75,57 @@ func _run() -> void:
 			i += 1
 		sheet.save_png("res://build/shots/human_%s.png" % name)
 		print("saved human_", name)
-	# head close-ups
+	# head close-ups: front, 3/4, side at eye level | from slightly below | along the game camera's line
 	_settle("idle", 0.0)
 	h.show_knob(false)
 	h.show_handset(false)
-	var fs := Image.create(W * 3, H, false, Image.FORMAT_RGB8)
+	var fs := Image.create(W * 5, H, false, Image.FORMAT_RGB8)
 	var k := 0
-	for ang: float in [0.0, 35.0, 90.0]:
-		_place_cam(ang, 0.75, 1.58, 1.58)
+	for spec: Array in [[0.0, 0.75, 1.58, 1.58], [35.0, 0.75, 1.58, 1.58], [90.0, 0.75, 1.58, 1.58],
+			[15.0, 0.75, 1.46, 1.6], [25.0, 1.0, 1.78, 1.58]]:  # last: same ~10 deg down line as the room camera
+		_place_cam(spec[0], spec[1], spec[2], spec[3])
 		var img2 := await _grab()
 		fs.blit_rect(img2, Rect2i(0, 0, W, H), Vector2i(W * k, 0))
 		k += 1
 	fs.save_png("res://build/shots/human_face.png")
+	# typical room camera: ~2.4 m up, 4-6 m away, looking down ~20 deg, wide lens like the game
+	cam.fov = 60.0
+	var gs := Image.create(W * 3, H, false, Image.FORMAT_RGB8)
+	k = 0
+	for spec2: Array in [[10.0, 4.0], [35.0, 5.0], [-20.0, 6.0]]:
+		var a := deg_to_rad(spec2[0])
+		var d: float = spec2[1]
+		var p := Vector3(sin(a) * d, 2.4, -cos(a) * d)
+		var target := Vector3(0, 2.4 - tan(deg_to_rad(20.0)) * d, 0)
+		cam.look_at_from_position(p, target)
+		var img3 := await _grab()
+		gs.blit_rect(img3, Rect2i(0, 0, W, H), Vector2i(W * k, 0))
+		k += 1
+	gs.save_png("res://build/shots/human_game.png")
+	# a crop of the game-angle view (same line of sight, narrow lens) to judge the face at that angle
+	cam.fov = 9.0
+	var gc := Image.create(W * 2, H, false, Image.FORMAT_RGB8)
+	k = 0
+	for spec3: Array in [[10.0, 4.0], [35.0, 5.0]]:
+		var a2 := deg_to_rad(spec3[0])
+		var d2: float = spec3[1]
+		cam.look_at_from_position(Vector3(sin(a2) * d2, 2.4, -cos(a2) * d2), Vector3(0, 1.45, 0))
+		var img4 := await _grab()
+		gc.blit_rect(img4, Rect2i(0, 0, W, H), Vector2i(W * k, 0))
+		k += 1
+	gc.save_png("res://build/shots/human_game_close.png")
+	# overhead door camera (8.4 m up, 2.3 m behind, fov 52) in the hold pose, plus a zoomed crop
+	var ts := Image.create(W * 3, H, false, Image.FORMAT_RGB8)
+	k = 0
+	for spec4: Array in [["hold", 52.0], ["hold", 14.0], ["walk", 14.0]]:
+		_settle(spec4[0], PI * 0.5)
+		cam.fov = spec4[1]
+		cam.look_at_from_position(Vector3(0, 8.4, 2.3), Vector3(0, 0, -0.25), Vector3(0, 0, -1))
+		var img5 := await _grab()
+		ts.blit_rect(img5, Rect2i(0, 0, W, H), Vector2i(W * k, 0))
+		k += 1
+	ts.save_png("res://build/shots/human_top.png")
+	cam.fov = 38.0
 	print("SHOTS DONE")
 	quit()
 
