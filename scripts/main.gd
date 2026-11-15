@@ -1120,13 +1120,15 @@ func _title_camera() -> void:
 func _cam_cfg() -> Array:
 	if lab:
 		return lab_cfg
-	return story.cam_for(Building.world_to_cell(player.global_position))
+	return story.view_for(player.global_position)
 
 func _update_room(force: bool) -> void:
 	var room := B.room_of(player.global_position)
 	if room == "":
 		return
 	var cell := Building.world_to_cell(player.global_position)
+	if not lab and not cam_override:
+		story.view_for(player.global_position)   # decides whether the player has been lost by the usual camera
 	var key := story.key_of(cell) if not lab else NO_CELL
 	if room == cam_room and key == cam_cell and not force:
 		return
@@ -1424,6 +1426,13 @@ func _bot_goto(target: Vector3, limit := 12.0) -> bool:
 			bot_fail = "could not walk to %s (stuck at %s, state %d)" % [target, player.global_position, state]
 			return false
 	bot_vec = Vector3.ZERO
+	# wherever the bot stops, the player has to be on the screen
+	if state == St.PLAY and not cam_override and not lab:
+		for i in 4:
+			await get_tree().process_frame
+		if state == St.PLAY and not cam_override and story.lost():
+			bot_fail = "the camera lost the player at %s (cell %s)" % [player.global_position, Building.world_to_cell(player.global_position)]
+			return false
 	return true
 
 func _bot_walk_cell(to: Vector2i) -> bool:

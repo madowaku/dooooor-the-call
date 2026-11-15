@@ -21,6 +21,9 @@ var m                                # the director (main.gd)
 var cams: Dictionary = {}             # cell -> [position, look-at, tracking, fov]
 var cam_key: Dictionary = {}          # cell -> which stretch of the room it belongs to
 var report: Array[String] = []
+var solo: Dictionary = {}             # cell -> a camera inside that one cell
+var solo_cell := Vector2i(-1, -1)
+var solo_hold := 0.0
 var worst := 1.0
 var other: Human                     # the one who has been knocking
 var final_door: Door
@@ -165,6 +168,12 @@ func _chunks(cells: Array) -> Array:
 ## every stretch gets the camera that hides least. chapter 1 keeps its hand-placed cameras
 ## wherever they already show every doorway.
 func _place_cams() -> void:
+	CamAudit.leaves = []
+	for d: LevelLogic.DoorDef in m.L.doors:
+		var hp := Building.vertex_pos(d.hinge)
+		for pos: int in d.slots:
+			var dv := Building.dir_vec(pos)
+			CamAudit.leaves.append([Vector2(hp.x + dv.x * 0.16, hp.z + dv.z * 0.16), Vector2(hp.x + dv.x * 1.64, hp.z + dv.z * 1.64)])
 	cams.clear()
 	cam_key.clear()
 	report.clear()
@@ -225,7 +234,60 @@ func audit() -> void:
 func cam_for(cell: Vector2i) -> Array:
 	return cams.get(cell, [Vector3(1.5, 2.4, 1.5), Vector3.ZERO, 0.3, 60.0])
 
+## is the player hidden from this camera right now, by a door leaf where it really stands,
+## or by having walked out of the frame?
+func hidden_from(cfg: Array, p: Vector3) -> bool:
+	var head := p + Vector3(0, 1.5, 0)
+	for d: Door in m.doors:
+		if d.turning:
+			continue
+		var dv := Building.dir_vec(d.def.pos)
+		var hp := d.global_position
+		if CamAudit.leaf_blocks(cfg[0], head, Vector2(hp.x + dv.x * 0.16, hp.z + dv.z * 0.16), Vector2(hp.x + dv.x * 1.64, hp.z + dv.z * 1.64)):
+			return true
+	var look: Vector3 = (cfg[1] as Vector3).lerp(p + Vector3(0, 1.0, 0), cfg[2])
+	return not CamAudit.on_screen(cfg[0], look, cfg[3], head)
+
+## QA: with the camera as it really is this frame, can the player be seen?
+func lost() -> bool:
+	var head: Vector3 = m.player.global_position + Vector3(0, 1.5, 0)
+	if m.cam.is_position_behind(head):
+		return true
+	var sp: Vector2 = m.cam.unproject_position(head)
+	if sp.x < 8.0 or sp.x > 504.0 or sp.y < 8.0 or sp.y > 376.0:
+		return true
+	for d: Door in m.doors:
+		var dv := Building.dir_vec(d.def.pos)
+		var hp := d.global_position
+		if CamAudit.leaf_blocks(m.cam.global_position, head, Vector2(hp.x + dv.x * 0.16, hp.z + dv.z * 0.16), Vector2(hp.x + dv.x * 1.64, hp.z + dv.z * 1.64)):
+			return true
+	return false
+
+## the camera to use this frame. normally the one placed for this stretch of the room; but the player
+## must never be lost, so when that camera cannot see them, a camera inside their own cell takes over
+## (a leaf stands on the edge of a cell, never between two points inside one).
+func view_for(p: Vector3) -> Array:
+	var cell := Building.world_to_cell(p)
+	var cfg := cam_for(cell)
+	var want := hidden_from(cfg, p)
+	if want:
+		solo_cell = cell
+		solo_hold = 1.2
+	elif solo_hold > 0.0 and cell == solo_cell:
+		want = true
+	else:
+		solo_cell = Vector2i(-1, -1)
+	if not want:
+		return cfg
+	if not solo.has(cell):
+		var keep: Array = CamAudit.leaves
+		solo[cell] = CamAudit.best(m.L, m.B, [cell])
+		CamAudit.leaves = keep
+	return solo[cell]
+
 func key_of(cell: Vector2i) -> Vector2i:
+	if cell == solo_cell:
+		return cell + Vector2i(1000, 0)
 	return cam_key.get(cell, Vector2i(-1, -1))
 
 func plan_cam() -> Array:
@@ -330,6 +392,7 @@ func phone_usable() -> bool:
 	return not is_final() or sealed
 
 func _process(_delta: float) -> void:
+	solo_hold = maxf(0.0, solo_hold - _delta)
 	if m == null or not is_final() or other == null:
 		return
 	if not arrived:
@@ -654,6 +717,25 @@ func bot_finish(shots: bool) -> bool:
 			await m.wait(6.0)
 			await m._shot("33_plan")
 		return await m._bot_until(func() -> bool: return bot_done, 90.0)
+	if m.L.knob_on != -1:
+		# random play can arrive with the knob still sitting in a door: go back for it, on foot
+		var di: int = m.L.knob_on
+		var every := []
+		for i in m.L.doors.size():
+			every.append(i)
+		var keep: Vector2i = m.L.phone_cell
+		m.L.phone_cell = m.L.op_cell(di)
+		var r1 := Solver.search(m.L, Building.world_to_cell(m.player.global_position), every)
+		m.L.phone_cell = keep
+		if not r1.found or not await m._bot_play(r1.actions, false) or not await m._bot_to_door(m.doors[di]):
+			m.bot_fail = "the knob was left in a door that cannot be walked back to"
+			return false
+		m._on_back()
+		await m._bot_until(func() -> bool: return m.state == m.St.PLAY and m.L.knob_on == -1, 20.0)
+		var r2 := Solver.search(m.L, Building.world_to_cell(m.player.global_position), every)
+		if not r2.found or not await m._bot_play(r2.actions, false):
+			m.bot_fail = "could not walk back to the grille"
+			return false
 	await m._bot_goto(Building.cell_center(m.L.phone_cell))
 	if not await m._bot_until(func() -> bool: return at_grille, 20.0):
 		m.bot_fail = "nobody came to the grille"
