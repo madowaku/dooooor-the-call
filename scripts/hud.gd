@@ -41,7 +41,17 @@ const DULL := Color(0.5, 0.42, 0.34)
 const WALLC := Color(0.5, 0.17, 0.08)
 var aid_pipe: float = 0.0         # the bell is arriving through a duct
 var cont: int = 1                 # title: a later chapter can be continued
-var dial_n: int = -1              # last scene: how far the dial has been turned
+var num_digit: int = 0            # the digit in the receiver
+var num_total: int = 0
+var num_dots: int = 0             # pulses heard so far
+var num_alpha: float = 0.0        # the numeral, for a moment
+var num_pos: Vector2 = Vector2(300, 150)
+var dial_ui: bool = false         # last scene: the dial
+var dial_sel: int = 5
+var dial_in: Array = []
+var dial_spin: float = 0.0        # how many holes the dial is wound round, right now
+var dial_bad: float = 0.0
+var hint: Array = []              # three groups of pulses given back by a dead line
 var echo_far: bool = false
 var lab_rows: Array = []          # DOOOOOR LAB list: [name, result]
 var lab_sel: int = 0
@@ -80,6 +90,7 @@ func _process(delta: float) -> void:
 	knob_blink = maxf(0.0, knob_blink - delta)
 	knob_flash = maxf(0.0, knob_flash - delta)
 	aid_note = maxf(0.0, aid_note - delta)
+	dial_bad = maxf(0.0, dial_bad - delta)
 	_ring = 1.0 if ring_env > 0.5 else maxf(0.0, _ring - delta / 0.4)
 	_ring_slow = lerpf(_ring_slow, ring_env, minf(1.0, delta * 2.6))
 	_echo = 1.0 if echo_env > 0.5 else maxf(0.0, _echo - delta / 0.6)
@@ -103,6 +114,8 @@ func _draw() -> void:
 		var g: float = 1.6 if aid_strong else 1.0
 		draw_arc(echo_pos, 5.0 + 9.0 * (1.0 - _echo), 0.0, TAU, 20, _a(AMBER, 0.5 * _echo * g), 1.0)
 		draw_arc(echo_pos, 3.0, 0.0, TAU, 12, _a(AMBER, 0.35 * _echo * g), 1.0)
+	if num_dots > 0 or num_alpha > 0.01:
+		_draw_number()
 	if mode == "end":
 		_draw_end()
 
@@ -182,13 +195,8 @@ func _draw_play() -> void:
 		_text_c("音のめやす " + nm, 256.0, 30.0, _a(PALE, clampf(aid_note * 2.0, 0.0, 1.0)))
 	if knob_known:
 		_draw_knob()
-	if dial_n >= 0:
-		for i in 3:
-			var dc := Vector2(236.0 + 20.0 * float(i), 352.0)
-			draw_circle(dc, 6.0, Color(0, 0, 0, 0.6))
-			draw_arc(dc, 6.0, 0.0, TAU, 20, _a(PALE, 0.9), 1.0)
-			if i < dial_n:
-				draw_circle(dc, 3.5, BRASS)
+	if dial_ui:
+		_draw_dial()
 	if prompt_act:
 		var p: float = 0.5 + 0.5 * sin(t * 3.2)
 		_glyph(ACT_C, _key("A", "Z"), 0.78 + 0.22 * p, 9.0 + 0.5 * p)
@@ -357,6 +365,63 @@ func _phone_shape(c: Vector2, col: Color) -> void:
 	draw_rect(Rect2(c + Vector2(-9, -9), Vector2(18, 3)), col)
 	draw_rect(Rect2(c + Vector2(-11, -9), Vector2(5, 5)), col)
 	draw_rect(Rect2(c + Vector2(6, -9), Vector2(5, 5)), col)
+
+
+# ---------------------------------------------------------------- the number
+
+## in the receiver: one small light for each pulse of the dial, in the arc the dial makes,
+## then the numeral itself, unsteady, as if it had come down the wire. never louder than that.
+func _draw_number() -> void:
+	var c: Vector2 = num_pos + Vector2(46.0, -34.0)
+	c.x = clampf(c.x, 70.0, W - 70.0)
+	c.y = clampf(c.y, 60.0, H - 70.0)
+	for i in num_dots:
+		var ang: float = -PI * 0.5 + (float(i) - float(num_total - 1) * 0.5) * 0.3
+		var p: Vector2 = c + Vector2(cos(ang), sin(ang)) * 30.0
+		var newest: bool = i == num_dots - 1
+		draw_circle(p, 2.0, Color(0, 0, 0, 0.5))
+		draw_circle(p, 1.5 if not newest else 2.5, _a(AMBER, 0.85 if newest else 0.5))
+	if num_alpha > 0.01:
+		var wob: float = 0.75 + 0.25 * sin(t * 37.0) * sin(t * 5.1)
+		var a: float = num_alpha * wob
+		var txt := str(num_digit)
+		var sz: Vector2 = _font.get_string_size(txt, HORIZONTAL_ALIGNMENT_LEFT, -1, 32)
+		var base := Vector2(roundf(c.x - sz.x * 0.5), roundf(c.y + 12.0))
+		draw_string(_font, base + Vector2(1.0 + roundf(sin(t * 23.0)), 1), txt, HORIZONTAL_ALIGNMENT_LEFT, -1, 32, Color(0, 0, 0, 0.55 * a))
+		draw_string(_font, base, txt, HORIZONTAL_ALIGNMENT_LEFT, -1, 32, _a(AMBER.lerp(PALE, 0.3), 0.82 * a))
+
+
+## the last telephone. ten holes; the chosen one is brass. below it, what has been dialled.
+func _draw_dial() -> void:
+	var c := Vector2(404.0, 262.0)
+	var r := 62.0
+	draw_circle(c, r + 6.0, Color(0, 0, 0, 0.55))
+	draw_arc(c, r + 6.0, 0.0, TAU, 48, _a(PALE, 0.5), 1.0)
+	draw_circle(c, 16.0, Color(0.02, 0.02, 0.02, 0.7))
+	var order := [1, 2, 3, 4, 5, 6, 7, 8, 9, 0]
+	for k in 10:
+		var d: int = order[k]
+		var a0: float = deg_to_rad(-60.0 - 30.0 * float(k))
+		var plate: Vector2 = c + Vector2(cos(a0), sin(a0)) * (r - 16.0)
+		# the numerals stay on the plate; the holes go round with the finger
+		_text_c(str(d), plate.x + 0.5, plate.y, _a(PALE, 0.9 if d == dial_sel else 0.55))
+		var a1: float = a0 + deg_to_rad(30.0) * dial_spin
+		var hole: Vector2 = c + Vector2(cos(a1), sin(a1)) * (r - 16.0)
+		draw_arc(hole, 10.0, 0.0, TAU, 20, _a(BRASS if d == dial_sel else DIM, 1.0 if d == dial_sel else 0.7), 2.0 if d == dial_sel else 1.0)
+	# the finger stop
+	var st: float = deg_to_rad(52.0)
+	draw_line(c + Vector2(cos(st), sin(st)) * (r - 30.0), c + Vector2(cos(st), sin(st)) * (r + 4.0), _a(PALE, 0.8), 2.0)
+	for i in 3:
+		var p := Vector2(380.0 + 24.0 * float(i), 348.0)
+		draw_rect(Rect2(p.x - 9.0, p.y - 10.0, 18.0, 20.0), Color(0, 0, 0, 0.55))
+		draw_rect(Rect2(p.x - 9.0, p.y - 10.0, 18.0, 20.0), _a(Color(0.8, 0.25, 0.2) if dial_bad > 0.0 else DIM, 0.9), false, 1.0)
+		if i < dial_in.size():
+			_text_c(str(dial_in[i]), p.x + 0.5, p.y, PALE)
+	_glyph(Vector2(330.0, 348.0), _key("A", "Z"), 0.85)
+	if hint.size() == 3:
+		for g in 3:
+			for i in int(hint[g]):
+				draw_circle(Vector2(96.0 + 9.0 * float(i), 300.0 + 16.0 * float(g)), 2.5, _a(AMBER, 0.8))
 
 
 # ---------------------------------------------------------------- DOOOOOR LAB (developer test boards)

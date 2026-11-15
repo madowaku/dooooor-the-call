@@ -43,8 +43,8 @@ const CAMS := {
 
 ## the telephone gets its own cameras: the long look down the mats, then the alcove itself
 const NO_CELL := Vector2i(-1, -1)
+const DISCOVER_CAM := [Vector3(7.9, 1.75, 8.8), Vector3(7.5, 0.9, 4.0), 0.12, 46.0]
 const CELL_CAMS := {
-	Vector2i(2, 2): [Vector3(7.9, 1.75, 8.8), Vector3(7.5, 0.9, 4.0), 0.12, 46.0],
 	Vector2i(2, 1): [Vector3(8.6, 1.6, 5.8), Vector3(7.35, 0.85, 3.75), 0.2, 52.0],
 }
 
@@ -59,7 +59,8 @@ const ROOM_AC := {
 ## chapters 2-4 take the answer of a room from what its floor is made of
 const AC_BY := {"concrete": [0.78, 0.3, 0.02, 0.22], "wood": [0.66, 0.5, 0.0, 0.14], "carpet": [0.5, 0.8, -0.03, 0.06], "tile": [0.56, 0.06, 0.12, 0.44]}
 const EXTRA_SOUNDS := ["bell2_ring", "bell2_wall", "bell2_tail", "bell3_ring", "bell3_wall", "bell3_tail", "bell3_pipe",
-	"knock_ring", "knock_wall", "pipe_tick", "line2", "line3", "dial_wind", "dial_return", "far_bell1", "rain_loop", "drip", "boiler_hum"]
+	"knock_ring", "knock_wall", "pipe_tick", "line2", "line3", "dial_wind", "dial_return", "far_bell1", "rain_loop", "drip", "boiler_hum",
+	"line_a1", "line_a2", "line_a3", "line_hint", "line_dead"]
 
 var L: LevelLogic
 var meta: LevelMeta
@@ -154,6 +155,9 @@ func _ready() -> void:
 				lab_file = a.substr(6)
 			elif a == "--marathon":
 				Story.marathon = true
+				Story.no_save = true
+			elif a in ["--autoplay", "--monkey", "--tour", "--labbot", "--camaudit"]:
+				Story.no_save = true
 			elif a.begins_with("--chapter="):
 				Story.chapter = clampi(int(a.substr(10)), 1, Story.CHAPTERS.size())
 				Story.resume = Story.chapter > 1
@@ -207,6 +211,9 @@ func _ready() -> void:
 	elif "--tour" in args:
 		bot = true
 		_bot_tour.call_deferred()
+	elif "--camaudit" in args:
+		story.audit()
+		get_tree().quit(0)
 
 
 # ------------------------------------------------------------------ setup
@@ -444,6 +451,8 @@ func _setup_sound_sources() -> void:
 	add_child(bell_tail)
 	line = AudioStreamPlayer.new()
 	line.stream = streams[meta.line] if meta != null and streams.has(meta.line) else streams["line_next"]
+	if streams.has("line_a%d" % Story.chapter):
+		line.stream = streams["line_a%d" % Story.chapter]   # the same line, with this chapter's digit dialled on it
 	line.volume_db = -15.0
 	add_child(line)
 	amb = AudioStreamPlayer.new()
@@ -604,6 +613,8 @@ func _start_game() -> void:
 	if state != St.TITLE:
 		return
 	state = St.TRANSITION
+	Story.heard = [false, false, false]
+	Story.save(1)
 	sfx("ui_start", -6.0)
 	var tw := create_tween()
 	tw.tween_property(hud, "title_alpha", 0.0, 0.5)
@@ -664,6 +675,8 @@ func _unhandled_input(ev: InputEvent) -> void:
 		else:
 			get_tree().paused = not get_tree().paused
 			pause_label.visible = get_tree().paused
+			# the only place the number is written down: what has been heard so far
+			pause_label.text = "PAUSE\n\nEsc  つづける\nQ  おわる" + ("\n\n\n" + Story.memo() if Story.heard.has(true) else "")
 			AudioServer.set_bus_mute(0, get_tree().paused)
 		return
 	if get_tree().paused:
@@ -681,6 +694,9 @@ func _unhandled_input(ev: InputEvent) -> void:
 		_on_back()
 
 func _on_act() -> void:
+	if story.dialing:
+		story.dial_press()
+		return
 	match state:
 		St.TITLE:
 			if hud.title_alpha > 0.5:
@@ -718,6 +734,9 @@ func _on_back() -> void:
 			Story.chapter = hud.cont
 			Story.resume = true
 			_restart()
+		return
+	if story.dialing:
+		story.dial_erase()
 		return
 	if story.on_back():
 		return
@@ -1101,16 +1120,14 @@ func _title_camera() -> void:
 func _cam_cfg() -> Array:
 	if lab:
 		return lab_cfg
-	if meta != null:
-		return story.cam_cfg(cam_room)
-	return CELL_CAMS.get(cam_cell, CAMS[cam_room])
+	return story.cam_for(Building.world_to_cell(player.global_position))
 
 func _update_room(force: bool) -> void:
 	var room := B.room_of(player.global_position)
 	if room == "":
 		return
 	var cell := Building.world_to_cell(player.global_position)
-	var key := cell if CELL_CAMS.has(cell) and not lab and meta == null else NO_CELL
+	var key := story.key_of(cell) if not lab else NO_CELL
 	if room == cam_room and key == cam_cell and not force:
 		return
 	if room != cam_room:
@@ -1127,7 +1144,7 @@ func _update_room(force: bool) -> void:
 	cam.fov = cfg[3]
 	cam_look = _look_goal(cfg)
 	cam.look_at(cam_look)
-	if key != NO_CELL and not phone_seen and state == St.PLAY:
+	if meta == null and not lab and cell == Vector2i(2, 2) and not phone_seen and state == St.PLAY:
 		_discover()
 	elif meta != null and not phone_seen and state == St.PLAY and story.sees_phone(cell):
 		story.discover()
@@ -1142,7 +1159,7 @@ func _discover() -> void:
 	human.has_look = true
 	human.look_target = B.phone_pos + Vector3(0, 0.7, 0)
 	cam_override = true
-	var cfg: Array = CELL_CAMS[Vector2i(2, 2)]
+	var cfg: Array = DISCOVER_CAM
 	cam.global_position = cfg[0]
 	cam.look_at(cfg[1])
 	cam.fov = 50.0
@@ -1262,6 +1279,7 @@ func _update_sound(delta: float) -> void:
 	# the handset rattles in its cradle exactly while the clapper runs
 	B.phone_handset.rotation.z = sin(clock * 83.0) * 0.045 if ring_on and not story.is_final() else 0.0
 	var lpos_ := line.get_playback_position() if line.playing else -1.0
+	story.line_tick(lpos_)
 	hud.echo_env = 1.0 if lpos_ >= 5.8 and fmod(lpos_ - 5.8, line_period) < line_len else 0.0
 	if hud.echo_env > 0.0 and not cam.is_position_behind(B.phone_pos):
 		hud.echo_pos = cam.unproject_position(B.phone_pos + Vector3(0, 0.75, 0))

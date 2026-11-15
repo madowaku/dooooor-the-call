@@ -9,10 +9,19 @@ const SAVE := "user://save.cfg"
 static var chapter := 1
 static var resume := false
 static var bot_done := false
-static var marathon := false       # QA: play every chapter in one run, through the real transitions
+static var marathon := false
+static var no_save := false
+## the number. one digit is heard in each of the first three receivers.
+const NUMBER := [5, 0, 5]
+const PULSE_T0 := 1.5
+const PULSE_GAP := 0.14
+static var heard: Array = [false, false, false]       # QA: play every chapter in one run, through the real transitions
 
 var m                                # the director (main.gd)
-var cams: Dictionary = {}
+var cams: Dictionary = {}             # cell -> [position, look-at, tracking, fov]
+var cam_key: Dictionary = {}          # cell -> which stretch of the room it belongs to
+var report: Array[String] = []
+var worst := 1.0
 var other: Human                     # the one who has been knocking
 var final_door: Door
 var goal_dir := -1
@@ -25,8 +34,9 @@ var handed := false
 var sealed := false
 var knob_gone := false
 var dialing := false
-var dial_n := 0
-var dial_released := true
+var dial_sel := 5                # the hole the finger is on
+var dial_in: Array = []          # digits dialled so far
+var dial_wrong := 0
 var dial_busy := false
 
 
@@ -37,12 +47,58 @@ static func saved() -> int:
 	var cf := ConfigFile.new()
 	if cf.load(SAVE) != OK:
 		return 1
+	var h = cf.get_value("game", "heard", [false, false, false])
+	if h is Array and h.size() == 3:
+		heard = [bool(h[0]), bool(h[1]), bool(h[2])]
 	return clampi(int(cf.get_value("game", "chapter", 1)), 1, CHAPTERS.size())
 
 static func save(n: int) -> void:
+	if no_save:
+		return   # QA bots must never touch the player's own progress
 	var cf := ConfigFile.new()
 	cf.set_value("game", "chapter", n)
+	cf.set_value("game", "heard", heard)
 	cf.save(SAVE)
+
+static func pulses(digit: int) -> int:
+	return 10 if digit == 0 else digit
+
+## when the first pulse of a digit is heard, counted from the start of the line recording
+static func pulse_start(digit: int) -> float:
+	return PULSE_T0 + 0.25 + 0.09 * pulses(digit) + 0.25
+
+## the digits heard so far, for the pause screen. an unheard one is a dot.
+static func memo() -> String:
+	var out := ""
+	for i in 3:
+		out += (str(NUMBER[i]) if heard[i] else "・") + ("  " if i < 2 else "")
+	return out
+
+## follow the receiver: light one dot per pulse, then let the numeral come up for a moment
+func line_tick(t: float) -> void:
+	var hud = m.hud
+	if t < 0.0 or chapter > 3 or m.lab or is_final():
+		hud.num_alpha = 0.0
+		hud.num_dots = 0
+		return
+	var digit: int = NUMBER[chapter - 1]
+	var n := pulses(digit)
+	var t0 := pulse_start(digit)
+	var t1 := t0 + (n - 1) * PULSE_GAP
+	hud.num_digit = digit
+	hud.num_total = n
+	hud.num_dots = clampi(int(floor((t - t0) / PULSE_GAP)) + 1, 0, n) if t >= t0 else 0
+	var a := 0.0
+	if t > t1 + 0.35:
+		a = clampf((t - t1 - 0.35) / 0.5, 0.0, 1.0) * clampf((t1 + 3.0 - t) / 0.9, 0.0, 1.0)
+		if not heard[chapter - 1]:
+			heard[chapter - 1] = true
+			save(chapter)
+	hud.num_alpha = a
+	if t > t1 + 3.2:
+		hud.num_dots = 0
+	if not m.cam.is_position_behind(m.human.right_hand_global()):
+		hud.num_pos = m.cam.unproject_position(m.human.right_hand_global())
 
 
 func is_final() -> bool:
@@ -51,52 +107,126 @@ func is_final() -> bool:
 
 # ------------------------------------------------------------------ world
 func setup_world() -> void:
-	if m.meta == null:
+	if m.lab:
 		return
-	_auto_cams()
+	_place_cams()
 	if is_final():
 		_setup_final()
 
-## one camera per room, always in the south-east corner, looking north or west:
-## whatever room you walk into, "up" on the screen is never south.
-func _auto_cams() -> void:
-	var lo := {}
-	var hi := {}
+func room_cells() -> Dictionary:
+	var out := {}
 	for c: Vector2i in m.L.cells:
 		var r: String = m.L.cells[c]
-		if not lo.has(r):
-			lo[r] = c
-			hi[r] = c
-		lo[r] = Vector2i(mini(lo[r].x, c.x), mini(lo[r].y, c.y))
-		hi[r] = Vector2i(maxi(hi[r].x, c.x), maxi(hi[r].y, c.y))
-	for r: String in lo:
-		var x0: float = lo[r].x * Building.CELL
-		var z0: float = lo[r].y * Building.CELL
-		var x1: float = (hi[r].x + 1) * Building.CELL
-		var z1: float = (hi[r].y + 1) * Building.CELL
-		var w := x1 - x0
-		var d := z1 - z0
-		var pos := Vector3(x1 - 0.42, 2.48, z1 - 0.42)
-		var look := Vector3((x0 + x1) * 0.5, 0.75, (z0 + z1) * 0.5)
-		var fov := 74.0
-		var track := 0.25
-		if d > w + 0.1:
-			look = Vector3(lerpf(x1, x0, 0.6), 0.9, lerpf(z1, z0, 0.62))
-			fov = 60.0
-			track = 0.4
-		elif w > d + 0.1:
-			look = Vector3(lerpf(x1, x0, 0.62), 0.9, lerpf(z1, z0, 0.6))
-			fov = 60.0
-			track = 0.4
-		elif w > 3.1:
-			fov = 68.0
-			look = Vector3(lerpf(x1, x0, 0.6), 0.7, lerpf(z1, z0, 0.6))
-		cams[r] = [pos, look, track, fov]
-	for r: String in m.meta.cams:
-		cams[r] = m.meta.cams[r]
+		if not out.has(r):
+			out[r] = []
+		out[r].append(c)
+	return out
 
-func cam_cfg(room: String) -> Array:
-	return cams.get(room, [Vector3(1.5, 2.4, 1.5), Vector3.ZERO, 0.3, 60.0])
+## a room is cut into stretches of at most three cells, each with its own fixed camera:
+## a long corridor seen from one end always hides the end the camera stands in.
+func _chunks(cells: Array) -> Array:
+	var lo := Vector2i(999, 999)
+	var hi := Vector2i(-999, -999)
+	for c: Vector2i in cells:
+		lo = Vector2i(mini(lo.x, c.x), mini(lo.y, c.y))
+		hi = Vector2i(maxi(hi.x, c.x), maxi(hi.y, c.y))
+	var w := hi.x - lo.x + 1
+	var h := hi.y - lo.y + 1
+	var rect := cells.size() == w * h
+	var out := []
+	if rect and maxi(w, h) <= 3:
+		return [cells]
+	var along_x := w >= h if rect else true
+	# rows (or columns) first, then pieces of at most three along them
+	var lines := {}
+	for c: Vector2i in cells:
+		var k := c.y if along_x else c.x
+		if rect and mini(w, h) > 1:
+			k = 0
+		if not lines.has(k):
+			lines[k] = []
+		lines[k].append(c)
+	for k: int in lines:
+		var line: Array = lines[k]
+		line.sort_custom(func(a: Vector2i, b: Vector2i) -> bool: return (a.x < b.x) if along_x else (a.y < b.y))
+		var span: int = (line[-1].x - line[0].x + 1) if along_x else (line[-1].y - line[0].y + 1)
+		var parts := int(ceil(span / 3.0))
+		var per := int(ceil(float(span) / parts))
+		var groups := {}
+		for c: Vector2i in line:
+			var idx: int = ((c.x - line[0].x) if along_x else (c.y - line[0].y)) / per
+			if not groups.has(idx):
+				groups[idx] = []
+			groups[idx].append(c)
+		for g: int in groups:
+			out.append(groups[g])
+	return out
+
+## every stretch gets the camera that hides least. chapter 1 keeps its hand-placed cameras
+## wherever they already show every doorway.
+func _place_cams() -> void:
+	cams.clear()
+	cam_key.clear()
+	report.clear()
+	var rooms := room_cells()
+	for r: String in rooms:
+		var rest: Array = []
+		for c: Vector2i in rooms[r]:
+			if m.meta == null and m.CELL_CAMS.has(c):
+				cams[c] = m.CELL_CAMS[c]
+				cam_key[c] = c
+				_note(r, [c], m.CELL_CAMS[c], "hand")
+			else:
+				rest.append(c)
+		if rest.is_empty():
+			continue
+		var hand: Array = []
+		if m.meta != null and m.meta.cams.has(r):
+			hand = m.meta.cams[r]
+		elif m.meta == null and m.CAMS.has(r):
+			hand = m.CAMS[r]
+		if not hand.is_empty():
+			var res := CamAudit.score(hand, rest, CamAudit.features(m.L, m.B, rest))
+			if res.hidden.is_empty() and res.score >= 0.8:
+				for c: Vector2i in rest:
+					cams[c] = hand
+					cam_key[c] = rest[0]
+				_note(r, rest, hand, "hand")
+				continue
+		var todo: Array = _chunks(rest)
+		while not todo.is_empty():
+			var chunk: Array = todo.pop_front()
+			var cfg := CamAudit.best(m.L, m.B, chunk)
+			var res2 := CamAudit.score(cfg, chunk, CamAudit.features(m.L, m.B, chunk))
+			if not res2.hidden.is_empty() and chunk.size() > 1:
+				# still hiding a doorway: cut the stretch in two and try again
+				var half := int(ceil(chunk.size() / 2.0))
+				todo.append(chunk.slice(0, half))
+				todo.append(chunk.slice(half))
+				continue
+			for c: Vector2i in chunk:
+				cams[c] = cfg
+				cam_key[c] = chunk[0]
+			_note(r, chunk, cfg, "auto")
+
+func _note(room: String, cells: Array, cfg: Array, how: String) -> void:
+	var res := CamAudit.score(cfg, cells, CamAudit.features(m.L, m.B, cells))
+	var hid := []
+	for f: Dictionary in res.hidden:
+		hid.append("%s at %s" % [f.kind, f.cell])
+	report.append("CAM ch%d room %s %s  %s  shows %3d%%  fov %.0f  hidden: %s" % [chapter, room, str(cells[0]), how, int(round(res.score * 100.0)), cfg[3], hid])
+	worst = minf(worst, res.score)
+
+func audit() -> void:
+	for line: String in report:
+		print(line)
+	print("CAMAUDIT ch%d worst camera shows %d%%" % [chapter, int(round(worst * 100.0))])
+
+func cam_for(cell: Vector2i) -> Array:
+	return cams.get(cell, [Vector3(1.5, 2.4, 1.5), Vector3.ZERO, 0.3, 60.0])
+
+func key_of(cell: Vector2i) -> Vector2i:
+	return cam_key.get(cell, Vector2i(-1, -1))
 
 func plan_cam() -> Array:
 	if m.meta == null:
@@ -206,12 +336,16 @@ func _process(_delta: float) -> void:
 		# both palms on the inside of a door that has no hole on that side
 		other.pose = "thud" if m.hud.ring_env > 0.5 else "idle"
 	if dialing and not dial_busy and not m.bot:
-		var iv := Input.get_vector("move_left", "move_right", "move_up", "move_down")
-		if iv.length() < 0.3:
-			dial_released = true
-		elif dial_released and iv.length() > 0.7:
-			dial_released = false
-			dial_step()
+		# the holes run 1 2 3 ... 9 0 round the dial
+		if Input.is_action_just_pressed("move_right") or Input.is_action_just_pressed("move_down"):
+			dial_sel = (dial_sel % 10) + 1 if dial_sel != 0 else 1
+			if dial_sel == 10:
+				dial_sel = 0
+			m.sfx("knob_turn", -16.0, 1.6)
+		elif Input.is_action_just_pressed("move_left") or Input.is_action_just_pressed("move_up"):
+			dial_sel = 0 if dial_sel == 1 else (9 if dial_sel == 0 else dial_sel - 1)
+			m.sfx("knob_turn", -16.0, 1.6)
+		m.hud.dial_sel = dial_sel
 
 ## called every frame of free play in the last chapter
 func scan(pc: Vector2i, p: Vector3) -> void:
@@ -380,25 +514,81 @@ func start_dial() -> void:
 	m.human.pose = "phone"
 	await m.wait(1.2)
 	m.hud.mode = "play"
-	m.hud.dial_n = 0
-	dial_released = false
+	m.hud.dial_ui = true
+	m.hud.dial_sel = dial_sel
+	m.hud.dial_in = dial_in
 	dialing = true
 
-## one turn of the dial: the same push of the stick that used to turn a door
-func dial_step() -> void:
+## Z: put a finger in the chosen hole and turn. the dial runs back, one pulse for each step.
+func dial_press() -> void:
+	if dialing and not dial_busy:
+		dial_digit(dial_sel)
+
+## X: put the receiver down for a moment and start the number again
+func dial_erase() -> void:
+	if dialing and not dial_busy and not dial_in.is_empty():
+		dial_in.clear()
+		m.hud.dial_in = dial_in
+		m.sfx("line_cut", -10.0)
+
+func dial_digit(d: int) -> void:
 	if dial_busy or not dialing:
 		return
 	dial_busy = true
-	dial_n += 1
-	m.hud.dial_n = dial_n
-	m.sfx("dial_wind" if m.streams.has("dial_wind") else "knob_turn", -4.0)
-	await m.wait(0.6)
-	m.sfx("dial_return" if m.streams.has("dial_return") else "knob_turn", -4.0)
-	await m.wait(1.1)
+	var n := pulses(d)
+	var wind := 0.3 + 0.07 * n
+	var back := 0.25 + 0.1 * n
+	m.sfx("dial_wind" if m.streams.has("dial_wind") else "knob_turn", -4.0, clampf(0.55 / wind, 0.45, 1.3))
+	var tw := create_tween()
+	tw.tween_property(m.hud, "dial_spin", float(n), wind)
+	await tw.finished
+	await m.wait(0.12)
+	m.sfx("dial_return" if m.streams.has("dial_return") else "knob_turn", -4.0, clampf(1.0 / back, 0.6, 1.6))
+	var tw2 := create_tween()
+	tw2.tween_property(m.hud, "dial_spin", 0.0, back)
+	await tw2.finished
+	dial_in.append(d)
+	m.hud.dial_in = dial_in
+	await m.wait(0.35)
+	if dial_in.size() >= 3:
+		if dial_in == NUMBER:
+			dialing = false
+			m.hud.dial_ui = false
+			_finish()
+			return
+		# no such number
+		await m.wait(0.6)
+		m.sfx("line_dead" if m.streams.has("line_dead") else "line_cut", -8.0)
+		m.hud.dial_bad = 1.2
+		await m.wait(1.7)
+		dial_in.clear()
+		m.hud.dial_in = dial_in
+		dial_wrong += 1
+		if dial_wrong >= 2:
+			await _hint()
 	dial_busy = false
-	if dial_n >= 3:
-		dialing = false
-		_finish()
+
+## after two wrong numbers the dead line gives the number back: three groups of pulses
+func _hint() -> void:
+	if m.streams.has("line_hint"):
+		m.sfx("line_hint", -6.0)
+	var at := 0.5
+	var t := 0.0
+	var groups := [0, 0, 0]
+	m.hud.hint = groups
+	for g in 3:
+		var n := pulses(NUMBER[g])
+		var r0 := at + 0.25 + 0.09 * n + 0.25
+		await m.wait(r0 - t)
+		t = r0
+		for i in n:
+			groups[g] = i + 1
+			m.hud.hint = groups
+			await m.wait(PULSE_GAP)
+			t += PULSE_GAP
+		at = r0 + n * PULSE_GAP + 0.75
+	await m.wait(2.5)
+	m.hud.hint = []
 
 func _finish() -> void:
 	m.hud.mode = "none"
@@ -453,9 +643,15 @@ func bot_finish(shots: bool) -> bool:
 		if shots:
 			await m.wait(4.2)
 			await m._shot("31_pickup")
-			await m.wait(4.0)
-			await m._shot("32_silence")
-			await m.wait(9.0)
+			# sound does not speed up with the bot's clock: wait for the numeral itself
+			if not await m._bot_until(func() -> bool: return m.hud.num_alpha > 0.7, 60.0):
+				m.bot_fail = "the digit never appeared"
+				return false
+			await m._shot("32_number")
+			if not heard[chapter - 1]:
+				m.bot_fail = "the digit was not remembered"
+				return false
+			await m.wait(6.0)
 			await m._shot("33_plan")
 		return await m._bot_until(func() -> bool: return bot_done, 90.0)
 	await m._bot_goto(Building.cell_center(m.L.phone_cell))
@@ -498,7 +694,22 @@ func bot_finish(shots: bool) -> bool:
 		return false
 	if shots:
 		await m._shot("44_dial")
-	for i in 3:
-		dial_step()
-		await m._bot_until(func() -> bool: return not dial_busy, 10.0)
+	# a wrong number first: the line must go dead and the entry must start again
+	for d: int in [1, 2, 3]:
+		dial_digit(d)
+		await get_tree().process_frame
+		await m._bot_until(func() -> bool: return not dial_busy, 20.0)
+	if dialing == false or not dial_in.is_empty():
+		m.bot_fail = "a wrong number was not rejected"
+		return false
+	for d: int in NUMBER:
+		dial_digit(d)
+		await get_tree().process_frame
+		if shots and d == 0:
+			await m.wait(0.5)
+			await m._shot("45_dialling")
+		await m._bot_until(func() -> bool: return not dial_busy or not dialing, 20.0)
+	if dialing:
+		m.bot_fail = "505 did not connect"
+		return false
 	return await m._bot_until(func() -> bool: return bot_done, 60.0)

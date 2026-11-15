@@ -662,4 +662,68 @@ burn = 1 + 0.15 * np.sin(2 * np.pi * 12.5 * tt)
 tone = 0.6 * np.sin(2 * np.pi * 50 * tt) + 0.35 * np.sin(2 * np.pi * 75 * tt + 0.3) + 0.3 * np.sin(2 * np.pi * 100 * tt + 1.0) + 0.12 * np.sin(2 * np.pi * 117.5 * tt)
 rumble = 2.0 * loop_noise(n, 45, 125, 3)
 save("boiler_hum", (0.25 * tone + rumble * burn) * throb + 0.06 * loop_noise(n, 2500, 8000, 1), 0.5)
+# ---------------------------------------------------------------- the lines again, each carrying one digit
+# what the caller dials is a number, one digit per telephone: 5, 0, 5. a rotary dial says a digit as
+# that many pulses (ten for zero), so the number can be counted by ear without anybody speaking.
+PULSE_GAP = 0.14
+
+
+def dial_num(buf, digit, at):
+    """one slow, deliberate turn of the dial. returns the time of the first pulse."""
+    npulse = 10 if digit == 0 else digit
+    w = 0.25 + 0.09 * npulse
+    k = int(w * SR)
+    wind = fft_filter(noise(k), lo=900, hi=3000, slope=2) * np.linspace(0.3, 1, k) * (0.6 + 0.4 * np.sin(2 * np.pi * 38 * t(k)))
+    place(buf, 0.2 * wind, at)
+    place(buf, click(int(0.05 * SR), 1500, 0.006, 0.6, 1.0), at + w)
+    r0 = at + w + 0.25
+    k = int((npulse * PULSE_GAP + 0.1) * SR)
+    place(buf, 0.07 * fft_filter(noise(k), lo=1500, hi=3200, slope=2), r0 - 0.04)
+    for i in range(npulse):
+        place(buf, 1.25 * click(int(0.05 * SR), 1750 + 40 * rng.random(), 0.006, 0.9, 1.4), r0 + i * PULSE_GAP)
+        place(buf, 0.5 * np.sin(2 * np.pi * 420 * t(int(0.03 * SR))) * np.exp(-t(int(0.03 * SR)) / 0.006), r0 + i * PULSE_GAP)
+    place(buf, click(int(0.06 * SR), 900, 0.01, 0.7, 1.0), r0 + npulse * PULSE_GAP + 0.06)
+    # somebody is close to the mouthpiece while the dial runs: not a voice, only air
+    k = int((npulse * PULSE_GAP + 1.2) * SR)
+    air_ = fft_filter(noise(k), lo=420, hi=1300, slope=2) * np.hanning(k) ** 1.5
+    place(buf, 0.045 * air_, r0 - 0.6)
+    return r0
+
+
+n = int(23 * SR)
+la = line_base(n)
+print("pulse start line_a1 %.3f" % dial_num(la, 5, 1.5))
+for r in range(6):
+    place(la, 0.34 * one, 5.8 + 3.0 * r)
+save("line_a1", np.tanh(2.2 * fft_filter(la, lo=320, hi=3100, slope=3)), 0.6)
+
+lb = line_base(n)
+line_drips(lb)
+print("pulse start line_a2 %.3f" % dial_num(lb, 0, 1.5))
+for r in range(6):
+    place(lb, 0.3 * one3 / (np.max(np.abs(one3)) + 1e-9), 5.8 + 3.0 * r)
+save("line_a2", np.tanh(2.2 * fft_filter(lb, lo=320, hi=3100, slope=3)), 0.6)
+
+lc = line_base(n)
+line_drips(lc)
+print("pulse start line_a3 %.3f" % dial_num(lc, 5, 1.5))
+for r in range(5):
+    for dt, lv in KNOCKS:
+        place(lc, 0.6 * np.tanh(4.0 * knock(lv * (0.95 + 0.1 * rng.random()), "air")), 5.8 + 4.0 * r + dt)
+save("line_a3", np.tanh(2.2 * fft_filter(lc, lo=320, hi=3100, slope=3)), 0.6)
+
+# the hint for a wrong number: the three digits again, as pulses, on a dead line
+n = int(9.5 * SR)
+lh = line_base(n) * 0.6
+at_ = 0.5
+for dg in (5, 0, 5):
+    r0_ = dial_num(lh, dg, at_)
+    at_ = r0_ + (10 if dg == 0 else dg) * PULSE_GAP + 0.75
+print("hint length used %.2f" % at_)
+save("line_hint", np.tanh(2.2 * fft_filter(lh, lo=320, hi=3100, slope=3)), 0.55)
+# a number that does not exist
+n = int(1.6 * SR)
+tt = t(n)
+dead = np.sin(2 * np.pi * 400 * tt) * (np.sin(2 * np.pi * 2.0 * tt) > 0) * 0.5
+save("line_dead", fft_filter(dead + 0.03 * noise(n), lo=320, hi=3100, slope=3), 0.3)
 print("done")
